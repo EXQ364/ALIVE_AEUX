@@ -817,63 +817,87 @@ function getImageFill(layer, parentFrame) {
 }
 //// get layer data: STROKE
 function getStrokes(layer) {
-    var strokeData = [];
-    var strokes = layer.strokes;
-    
-    // --- ПОЛУЧАЕМ ТОЛЩИНУ СТОРОН ---
-    // Проверяем, есть ли отдельные веса сторон. Если нет, берем общий вес.
-    var sides = {
-        top: (layer.strokeTopWeight !== undefined) ? layer.strokeTopWeight : layer.strokeWeight,
-        bottom: (layer.strokeBottomWeight !== undefined) ? layer.strokeBottomWeight : layer.strokeWeight,
-        left: (layer.strokeLeftWeight !== undefined) ? layer.strokeLeftWeight : layer.strokeWeight,
-        right: (layer.strokeRightWeight !== undefined) ? layer.strokeRightWeight : layer.strokeWeight
-    };
-    
-    // Флаг, является ли обводка "кастомной" (если стороны отличаются)
-    var isCustom = false;
-    if (typeof layer.strokeWeight !== 'number') {
-        isCustom = true; 
-    }
+    /// get layer style object
+    // var style = layer.sketchObject.style();
 
-    // loop through all strokes
-    for (var i = 0; i < strokes.length; i++) {
-        var stroke = strokes[i];
-        if (stroke.visible !== false) {
-            var strokeObj = {};
-            // ... (тут логика градиентов пропускаем для краткости, она остается старой) ...
-            
-            // Упрощенный пример для Solid Color (для Градиентов добавьте те же поля sides и isCustom)
-            var color = colorObjToArray(stroke);
-            strokeObj = {
-                type: 'fill',
-                enabled: stroke.visible !== false,
-                color: color,
-                opacity: color[3] * 100,
-                
-                // --- ВАЖНЫЕ ИЗМЕНЕНИЯ ---
-                width: 1, // Просто заглушка, чтобы не падало
-                sides: sides,       // Передаем объект со сторонами
-                isCustom: isCustom, // Говорим AE, что нужно рисовать 4 линии
-                // ------------------------
-                
-                cap: getCap(layer),
-                join: getJoin(layer),
-                strokeDashes: layer.dashPattern,
-                blendMode: getShapeBlending( stroke.blendMode ),
-            }
-            strokeData.push(strokeObj);
-        }
-    }
-    return strokeData;
+    // /// check if the layer has at least one stroke
+    // var hasStroke = ( style.firstEnabledstroke() ) ? true : false;
 
+	// if (hasStroke) {
+        var strokeData = [];
+        var strokes = layer.strokes;
+        var size = [layer.width, layer.height];
+
+        // loop through all strokes
+        for (var i = 0; i < strokes.length; i++) {
+            var stroke = strokes[i];
+            if (stroke.visible !== false) {
+                var strokeObj = {}
+                var fillType = getFillType(stroke.type);   /// find type and if a gradient get the grad type
+                // stroke is a gradient
+                if (fillType[0] > 0) {
+                    var gradType = fillType[1];
+
+                    let points = {}
+                    if (gradType == 2) {
+                        let radialPoints = extractRadialOrDiamondGradientParams(layer.width, layer.height, stroke.gradientTransform)
+                        let rad = radialPoints.radius[0]
+                        points.start = radialPoints.center
+                        points.end = [points.start[0] + rad, points.start[1]]
+                    } else {
+                        points = extractLinearGradientParamsFromTransform(layer.width, layer.height, stroke.gradientTransform)
+                    }  
+
+                    strokeObj = {
+                        type: 'gradient',
+                        startPoint: [points.start[0] - layer.width / 2, points.start[1] - layer.height / 2],
+                        endPoint: [points.end[0] - layer.width / 2, points.end[1] - layer.height / 2],
+                        gradType:  gradType,
+                        gradient: getGradient(stroke.gradientStops),
+        				opacity: 100,
+        				width: layer.strokeWeight,
+        				cap: getCap(layer),
+        				join: getJoin(layer),
+                        strokeDashes: layer.dashPattern,
+                        blendMode: getShapeBlending( stroke.blendMode ),
+        			}
+                // stroke is a solid
+                } else {                    
+                    var color = colorObjToArray(stroke);
+                    strokeObj = {
+                        type: 'fill',
+                        enabled: stroke.visible !== false,
+        				color: color,
+        				opacity: color[3] * 100,
+        				width: layer.strokeWeight,
+        				cap: getCap(layer),
+        				join: getJoin(layer),
+                        strokeDashes: layer.dashPattern,
+                        blendMode: getShapeBlending( stroke.blendMode ),
+        			}
+                }
+
+            // add obj string to array
+			strokeData.push(strokeObj);
+		}
+	}
+		return strokeData;															// return array of all strokes
     function getCap(layer) {
-        if (layer.strokeCap == 'ROUND') return 1;
-        if (layer.strokeCap == 'SQUARE') return 2;
+        if (layer.strokeCap == 'ROUND') {
+            return 1;
+        }
+        if (layer.strokeCap == 'SQUARE') {
+            return 2;
+        }
         return 0;
     }
     function getJoin(layer) {
-        if (layer.strokeJoin == 'ROUND') return 1;
-        if (layer.strokeJoin == 'BEVEL') return 2;
+        if (layer.strokeJoin == 'ROUND') {
+            return 1;
+        }
+        if (layer.strokeJoin == 'BEVEL') {
+            return 2;
+        }
         return 0;
     }
 }

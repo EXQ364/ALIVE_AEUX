@@ -956,28 +956,49 @@ var AEUX = (function () {
                 var sData = layer.stroke[i];
                 if (sData.isCustom === true && sData.sides) {
                     try {
-                        var createSide = function (sideName, pt1, pt2, weight) {
+                        var createSide = function (sideName, ptStart, ptEnd, weight, s) {
                             if (weight <= 0)
                                 return;
+                            var x1 = ptStart[0];
+                            var y1 = ptStart[1];
+                            var x2 = ptEnd[0];
+                            var y2 = ptEnd[1];
+                            if (sideName === "Top") {
+                                x1 -= (s.left / 2);
+                                x2 += (s.right / 2);
+                            }
+                            else if (sideName === "Bottom") {
+                                x1 += (s.right / 2);
+                                x2 -= (s.left / 2);
+                            }
+                            else if (sideName === "Left") {
+                                y1 += (s.top / 2);
+                                y2 -= (s.bottom / 2);
+                            }
+                            else if (sideName === "Right") {
+                                y1 -= (s.top / 2);
+                                y2 += (s.bottom / 2);
+                            }
                             var sideGroup = targetContents.addProperty("ADBE Vector Group");
                             sideGroup.name = "Stroke " + sideName;
                             var sideGroupContents = sideGroup.property("Contents");
                             var pathProp = sideGroupContents.addProperty("ADBE Vector Shape - Group");
                             var shape = new Shape();
-                            shape.vertices = [pt1, pt2];
+                            shape.vertices = [[x1, y1], [x2, y2]];
                             shape.closed = false;
                             pathProp.property("Path").setValue(shape);
                             var strokeProp = sideGroupContents.addProperty("ADBE Vector Graphic - Stroke");
                             strokeProp.property("Color").setValue(sData.color);
                             strokeProp.property("Opacity").setValue(sData.opacity);
                             strokeProp.property("Stroke Width").setValue(weight);
-                            strokeProp.property("Line Cap").setValue(3);
+                            strokeProp.property("Line Cap").setValue(1);
                             strokeProp.property("Line Join").setValue(1);
                         };
-                        createSide("Top", [-hw, -hh], [hw, -hh], sData.sides.top);
-                        createSide("Right", [hw, -hh], [hw, hh], sData.sides.right);
-                        createSide("Bottom", [hw, hh], [-hw, hh], sData.sides.bottom);
-                        createSide("Left", [-hw, hh], [-hw, -hh], sData.sides.left);
+                        var sides = sData.sides;
+                        createSide("Top", [-hw, -hh], [hw, -hh], sides.top, sides);
+                        createSide("Right", [hw, -hh], [hw, hh], sides.right, sides);
+                        createSide("Bottom", [hw, hh], [-hw, hh], sides.bottom, sides);
+                        createSide("Left", [-hw, hh], [-hw, -hh], sides.left, sides);
                         continue;
                     }
                     catch (e) {

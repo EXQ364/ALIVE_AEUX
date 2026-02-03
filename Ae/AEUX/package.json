@@ -36,8 +36,6 @@
     "bombino-commands": "^1.1.1",
     "boxen": "^4.2.0",
     "chalk": "^2.4.2",
-    "chokidar": "^2.1.8",
-    "cross-env": "^10.1.0",
     "eslint": "^5.16.0",
     "eslint-plugin-vue": "^5.0.0",
     "fs-extra": "^8.1.0",

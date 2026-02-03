@@ -1512,45 +1512,59 @@ function addStroke(r, layer) {
             // ---------------------------------------------------------
             if (sData.isCustom === true && sData.sides) {
                 try {
-                    // Внутренняя функция для рисования одной стороны
-                    // Не выносим её наружу, чтобы она имела доступ к targetContents и sData
-                    var createSide = function(sideName, pt1, pt2, weight) {
+                    // Используем Butt Cap (1) и математику для идеальных углов
+                    var createSide = function(sideName, ptStart, ptEnd, weight, s) {
                         if (weight <= 0) return;
 
-                        // Создаем группу для стороны (на одном уровне с заливкой)
+                        // Коррекция координат точек
+                        var x1 = ptStart[0];
+                        var y1 = ptStart[1];
+                        var x2 = ptEnd[0];
+                        var y2 = ptEnd[1];
+
+                        if (sideName === "Top") {
+                            // X корректируем на половину толщины соседних вертикальных линий
+                            x1 -= (s.left / 2);
+                            x2 += (s.right / 2);
+                        } else if (sideName === "Bottom") {
+                            x1 += (s.right / 2);
+                            x2 -= (s.left / 2);
+                        } else if (sideName === "Left") {
+                            // Y корректируем на половину толщины соседних горизонтальных линий
+                            y1 += (s.top / 2);
+                            y2 -= (s.bottom / 2);
+                        } else if (sideName === "Right") {
+                            y1 -= (s.top / 2);
+                            y2 += (s.bottom / 2);
+                        }
+
                         var sideGroup = targetContents.addProperty("ADBE Vector Group");
                         sideGroup.name = "Stroke " + sideName;
-
-                        // Получаем Contents новой группы
                         var sideGroupContents = sideGroup.property("Contents");
 
-                        // 1. Создаем Путь (Path)
                         var pathProp = sideGroupContents.addProperty("ADBE Vector Shape - Group");
                         var shape = new Shape();
-                        shape.vertices = [pt1, pt2];
+                        shape.vertices = [[x1, y1], [x2, y2]]; // Применяем скорректированные точки
                         shape.closed = false;
                         pathProp.property("Path").setValue(shape);
 
-                        // 2. Создаем Обводку (Stroke)
                         var strokeProp = sideGroupContents.addProperty("ADBE Vector Graphic - Stroke");
                         strokeProp.property("Color").setValue(sData.color);
                         strokeProp.property("Opacity").setValue(sData.opacity);
                         strokeProp.property("Stroke Width").setValue(weight);
                         
-                        // Line Cap: 1 = Butt (обрубленный), 2 = Round, 3 = Projecting (квадратный внахлест)
-                        // Для стыковки углов лучше всего подходит Projecting (3) или Butt (1)
-                        strokeProp.property("Line Cap").setValue(3); 
-                        strokeProp.property("Line Join").setValue(1);
+                        // ВАЖНО: Используем Butt Cap (1) для точного обрыва линии
+                        strokeProp.property("Line Cap").setValue(1); 
+                        strokeProp.property("Line Join").setValue(1); // Join уже не имеет значения
                     };
 
-                    // Рисуем 4 стороны
-                    createSide("Top",    [-hw, -hh], [hw, -hh],  sData.sides.top);
-                    createSide("Right",  [hw, -hh],  [hw, hh],   sData.sides.right);
-                    createSide("Bottom", [hw, hh],   [-hw, hh],  sData.sides.bottom);
-                    createSide("Left",   [-hw, hh],  [-hw, -hh], sData.sides.left);
+                    var sides = sData.sides;
+                    createSide("Top",    [-hw, -hh], [hw, -hh],  sides.top, sides);
+                    createSide("Right",  [hw, -hh],  [hw, hh],   sides.right, sides);
+                    createSide("Bottom", [hw, hh],   [-hw, hh],  sides.bottom, sides);
+                    createSide("Left",   [-hw, hh],  [-hw, -hh], sides.left, sides);
 
-                    // ВАЖНО: Прерываем текущую итерацию цикла, чтобы НЕ создалась обычная обводка
-                    continue;
+                    continue; // Пропускаем стандартную логику
 
                 } catch(e) {
                     alert("AEUX Stroke Error: " + e.toString());
