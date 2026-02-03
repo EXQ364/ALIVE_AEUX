@@ -817,87 +817,105 @@ function getImageFill(layer, parentFrame) {
 }
 //// get layer data: STROKE
 function getStrokes(layer) {
-    /// get layer style object
-    // var style = layer.sketchObject.style();
+    var strokeData = [];
+    var strokes = layer.strokes;
 
-    // /// check if the layer has at least one stroke
-    // var hasStroke = ( style.firstEnabledstroke() ) ? true : false;
+    // --- FIX START: Гарантированное получение толщины ---
+    var finalStrokeWeight = 1; // Значение по умолчанию
 
-	// if (hasStroke) {
-        var strokeData = [];
-        var strokes = layer.strokes;
-        var size = [layer.width, layer.height];
+    // 1. Пробуем получить стандартный вес
+    if (typeof layer.strokeWeight === 'number') {
+        finalStrokeWeight = layer.strokeWeight;
+    } 
+    // 2. Если вес "смешанный" (figma.mixed) или не число
+    else {
+        // Безопасно пытаемся достать стороны. Если свойства нет — будет 0.
+        // Используем ['propName'], чтобы TS/JS не ругался, если типы старые.
+        var top = layer['strokeTopWeight'] !== undefined ? layer['strokeTopWeight'] : 0;
+        var bottom = layer['strokeBottomWeight'] !== undefined ? layer['strokeBottomWeight'] : 0;
+        var left = layer['strokeLeftWeight'] !== undefined ? layer['strokeLeftWeight'] : 0;
+        var right = layer['strokeRightWeight'] !== undefined ? layer['strokeRightWeight'] : 0;
+        
+        var maxWeight = Math.max(top, bottom, left, right);
+        
+        // Если удалось вычислить макс > 0, берем его
+        if (maxWeight > 0) {
+            finalStrokeWeight = maxWeight;
+        }
+        // Если вдруг всё по нулям (странный случай), останется 1 (дефолт)
+    }
+    // --- FIX END ---
 
-        // loop through all strokes
-        for (var i = 0; i < strokes.length; i++) {
-            var stroke = strokes[i];
-            if (stroke.visible !== false) {
-                var strokeObj = {}
-                var fillType = getFillType(stroke.type);   /// find type and if a gradient get the grad type
-                // stroke is a gradient
-                if (fillType[0] > 0) {
-                    var gradType = fillType[1];
+    // loop through all strokes
+    for (var i = 0; i < strokes.length; i++) {
+        var stroke = strokes[i];
+        if (stroke.visible !== false) {
+            var strokeObj = {}
+            var fillType = getFillType(stroke.type);
 
-                    let points = {}
+            // stroke is a gradient
+            if (fillType[0] > 0) {
+                var gradType = fillType[1];
+                let points = {}
+                
+                // Безопасный вызов хелперов через try/catch (опционально, но полезно)
+                try {
                     if (gradType == 2) {
-                        let radialPoints = extractRadialOrDiamondGradientParams(layer.width, layer.height, stroke.gradientTransform)
+                        let radialPoints = Object(_figma_plugin_helpers__WEBPACK_IMPORTED_MODULE_0__["extractRadialOrDiamondGradientParams"])(layer.width, layer.height, stroke.gradientTransform)
                         let rad = radialPoints.radius[0]
                         points.start = radialPoints.center
                         points.end = [points.start[0] + rad, points.start[1]]
                     } else {
-                        points = extractLinearGradientParamsFromTransform(layer.width, layer.height, stroke.gradientTransform)
-                    }  
-
-                    strokeObj = {
-                        type: 'gradient',
-                        startPoint: [points.start[0] - layer.width / 2, points.start[1] - layer.height / 2],
-                        endPoint: [points.end[0] - layer.width / 2, points.end[1] - layer.height / 2],
-                        gradType:  gradType,
-                        gradient: getGradient(stroke.gradientStops),
-        				opacity: 100,
-        				width: layer.strokeWeight,
-        				cap: getCap(layer),
-        				join: getJoin(layer),
-                        strokeDashes: layer.dashPattern,
-                        blendMode: getShapeBlending( stroke.blendMode ),
-        			}
-                // stroke is a solid
-                } else {                    
-                    var color = colorObjToArray(stroke);
-                    strokeObj = {
-                        type: 'fill',
-                        enabled: stroke.visible !== false,
-        				color: color,
-        				opacity: color[3] * 100,
-        				width: layer.strokeWeight,
-        				cap: getCap(layer),
-        				join: getJoin(layer),
-                        strokeDashes: layer.dashPattern,
-                        blendMode: getShapeBlending( stroke.blendMode ),
-        			}
+                        points = Object(_figma_plugin_helpers__WEBPACK_IMPORTED_MODULE_0__["extractLinearGradientParamsFromTransform"])(layer.width, layer.height, stroke.gradientTransform)
+                    }
+                } catch (e) {
+                    // Fallback если градиенты сломались
+                    points = { start: [0,0], end: [100,100] };
                 }
 
-            // add obj string to array
-			strokeData.push(strokeObj);
-		}
-	}
-		return strokeData;															// return array of all strokes
+                strokeObj = {
+                    type: 'gradient',
+                    startPoint: [points.start[0] - layer.width / 2, points.start[1] - layer.height / 2],
+                    endPoint: [points.end[0] - layer.width / 2, points.end[1] - layer.height / 2],
+                    gradType:  gradType,
+                    gradient: getGradient(stroke.gradientStops),
+                    opacity: 100,
+                    width: finalStrokeWeight, // <-- Вставляем наше гарантированное число
+                    cap: getCap(layer),
+                    join: getJoin(layer),
+                    strokeDashes: layer.dashPattern,
+                    blendMode: getShapeBlending( stroke.blendMode ),
+                }
+            } 
+            // stroke is a solid
+            else {                    
+                var color = colorObjToArray(stroke);
+                strokeObj = {
+                    type: 'fill',
+                    enabled: stroke.visible !== false,
+                    color: color,
+                    opacity: color[3] * 100,
+                    width: finalStrokeWeight, // <-- Вставляем наше гарантированное число
+                    cap: getCap(layer),
+                    join: getJoin(layer),
+                    strokeDashes: layer.dashPattern,
+                    blendMode: getShapeBlending( stroke.blendMode ),
+                }
+            }
+
+            strokeData.push(strokeObj);
+        }
+    }
+    return strokeData;
+
     function getCap(layer) {
-        if (layer.strokeCap == 'ROUND') {
-            return 1;
-        }
-        if (layer.strokeCap == 'SQUARE') {
-            return 2;
-        }
+        if (layer.strokeCap == 'ROUND') return 1;
+        if (layer.strokeCap == 'SQUARE') return 2;
         return 0;
     }
     function getJoin(layer) {
-        if (layer.strokeJoin == 'ROUND') {
-            return 1;
-        }
-        if (layer.strokeJoin == 'BEVEL') {
-            return 2;
-        }
+        if (layer.strokeJoin == 'ROUND') return 1;
+        if (layer.strokeJoin == 'BEVEL') return 2;
         return 0;
     }
 }
