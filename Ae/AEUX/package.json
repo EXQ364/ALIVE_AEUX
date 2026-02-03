@@ -3,6 +3,8 @@
   "version": "0.8.2",
   "private": true,
   "scripts": {
+    "build:host": "tsc -p src/host/AEFT/tsconfig.json",
+    "watch:host": "tsc -p src/host/AEFT/tsconfig.json -w",
     "serve": "cross-env NODE_OPTIONS=--openssl-legacy-provider vue-cli-service serve",
     "build": "cross-env NODE_OPTIONS=--openssl-legacy-provider vue-cli-service build",
     "lint": "vue-cli-service lint",
@@ -22,6 +24,7 @@
     "express": "^4.17.1",
     "hammerjs": "^2.0.8",
     "starlette": "^1.0.4",
+    "typescript": "^5.9.3",
     "vue": "^2.6.11",
     "ws": "^6.2.2"
   },

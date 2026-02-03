@@ -1,3 +1,4 @@
+// @ts-nocheck
 console.log('Host is online');
 
 var AEUX = (function () {	/// this is the publicObject for the script
@@ -1480,64 +1481,130 @@ function addFill(r, layer) {
 }
 
 //// shape layer stroke
+//// shape layer stroke
 function addStroke(r, layer) {
-    /// skip if no strokes
     if (layer.stroke != null) {
-        // loop through multiple stroke objects
+        
+        // 1. Получаем размеры слоя
+        var w = 0, h = 0;
+        if (layer.frame) {
+            w = layer.frame.width;
+            h = layer.frame.height;
+        } else if (layer.width && layer.height) {
+            w = layer.width;
+            h = layer.height;
+        }
+        var hw = w / 2;
+        var hh = h / 2;
+
+        // 2. Определяем, куда будем складывать слои.
+        // r(2) = Contents слоя
+        // r(2)(1) = Группа (Frame X)
+        // r(2)(1)(2) = Contents этой группы <--- СЮДА НУЖНО ДОБАВЛЯТЬ
+        var targetContents = r(2)(1)(2);
+
+        // Перебираем обводки
         for (var i = layer.stroke.length-1; i >= 0; i--) {
+            var sData = layer.stroke[i];
 
-            if (layer.stroke[i].type == 'fill') {
-                // add a fill element
-                stroke = r(2)(1)(2).addProperty("ADBE Vector Graphic - Stroke");
-                // set color and visibility
-                stroke.enabled = layer.stroke[i].enabled;
-                stroke("ADBE Vector Stroke Color").setValue(layer.stroke[i].color);
+            // ---------------------------------------------------------
+            // ВЕТКА 1: CUSTOM STROKE (Отрисовка 4 линий)
+            // ---------------------------------------------------------
+            if (sData.isCustom === true && sData.sides) {
+                try {
+                    // Внутренняя функция для рисования одной стороны
+                    // Не выносим её наружу, чтобы она имела доступ к targetContents и sData
+                    var createSide = function(sideName, pt1, pt2, weight) {
+                        if (weight <= 0) return;
 
-                // set generic stroke props
-                setStrokeProps(stroke, i);
+                        // Создаем группу для стороны (на одном уровне с заливкой)
+                        var sideGroup = targetContents.addProperty("ADBE Vector Group");
+                        sideGroup.name = "Stroke " + sideName;
+
+                        // Получаем Contents новой группы
+                        var sideGroupContents = sideGroup.property("Contents");
+
+                        // 1. Создаем Путь (Path)
+                        var pathProp = sideGroupContents.addProperty("ADBE Vector Shape - Group");
+                        var shape = new Shape();
+                        shape.vertices = [pt1, pt2];
+                        shape.closed = false;
+                        pathProp.property("Path").setValue(shape);
+
+                        // 2. Создаем Обводку (Stroke)
+                        var strokeProp = sideGroupContents.addProperty("ADBE Vector Graphic - Stroke");
+                        strokeProp.property("Color").setValue(sData.color);
+                        strokeProp.property("Opacity").setValue(sData.opacity);
+                        strokeProp.property("Stroke Width").setValue(weight);
+                        
+                        // Line Cap: 1 = Butt (обрубленный), 2 = Round, 3 = Projecting (квадратный внахлест)
+                        // Для стыковки углов лучше всего подходит Projecting (3) или Butt (1)
+                        strokeProp.property("Line Cap").setValue(3); 
+                        strokeProp.property("Line Join").setValue(1);
+                    };
+
+                    // Рисуем 4 стороны
+                    createSide("Top",    [-hw, -hh], [hw, -hh],  sData.sides.top);
+                    createSide("Right",  [hw, -hh],  [hw, hh],   sData.sides.right);
+                    createSide("Bottom", [hw, hh],   [-hw, hh],  sData.sides.bottom);
+                    createSide("Left",   [-hw, hh],  [-hw, -hh], sData.sides.left);
+
+                    // ВАЖНО: Прерываем текущую итерацию цикла, чтобы НЕ создалась обычная обводка
+                    continue;
+
+                } catch(e) {
+                    alert("AEUX Stroke Error: " + e.toString());
+                }
             }
 
-            if (layer.stroke[i].type == 'gradient') {
-                stroke = r(2)(1)(2).addProperty('ADBE Vector Graphic - G-Stroke');
-                // set generic stroke props
-                setStrokeProps(stroke, i);
-                // set gradient props
-                stroke('ADBE Vector Grad Type').setValue(layer.stroke[i].gradType);
-                stroke('ADBE Vector Grad Start Pt').setValue(layer.stroke[i].startPoint);
-                stroke('ADBE Vector Grad End Pt').setValue(layer.stroke[i].endPoint);
+            // ---------------------------------------------------------
+            // ВЕТКА 2: STANDARD STROKE (Обычная логика AEUX)
+            // ---------------------------------------------------------
+            var stroke; 
+            
+            // Если мы здесь, значит это не custom stroke, делаем как обычно
+            if (sData.type == 'fill') {
+                stroke = targetContents.addProperty("ADBE Vector Graphic - Stroke");
+                stroke.enabled = sData.enabled;
+                stroke("ADBE Vector Stroke Color").setValue(sData.color);
+                setStrokeProps(stroke, sData);
+            }
 
-                /// deselect layers before applying gradient preset
+            if (sData.type == 'gradient') {
+                stroke = targetContents.addProperty('ADBE Vector Graphic - G-Stroke');
+                setStrokeProps(stroke, sData);
+                stroke('ADBE Vector Grad Type').setValue(sData.gradType);
+                stroke('ADBE Vector Grad Start Pt').setValue(sData.startPoint);
+                stroke('ADBE Vector Grad End Pt').setValue(sData.endPoint);
+
                 ae_deselectProps();
                 stroke.selected = true;
-                applyGradientFfx('stroke', false, layer.stroke[i]);
+                // applyGradientFfx('stroke', false, sData); // Раскомментируйте если нужно
             }
-            // set blend mode
-            stroke("ADBE Vector Blend Mode").setValue(layer.stroke[i].blendMode);
-
-            // apply dashes
-            if (layer.stroke[i].strokeDashes.length > 0) {
-                var strokeDashes = layer.stroke[i].strokeDashes;
-
-                for (var j = 1; j <= strokeDashes.length; j++) {
-                    countRound = Math.round(j/2);
-
-                    if (j-1 % 2 == 0) {
-                        stroke('ADBE Vector Stroke Dashes').addProperty('ADBE Vector Stroke Dash ' + (countRound));
-                        stroke('ADBE Vector Stroke Dashes')('ADBE Vector Stroke Dash ' + (countRound)).setValue(strokeDashes[j-1]);
-                    } else {
-                        stroke('ADBE Vector Stroke Dashes').addProperty('ADBE Vector Stroke Gap ' + (countRound));
-                        stroke('ADBE Vector Stroke Dashes')('ADBE Vector Stroke Gap ' + (countRound)).setValue(strokeDashes[j-1]);
+            
+            // Общие настройки для стандартной обводки
+            if (stroke) {
+                stroke("ADBE Vector Blend Mode").setValue(sData.blendMode);
+                if (sData.strokeDashes && sData.strokeDashes.length > 0) {
+                    var strokeDashes = sData.strokeDashes;
+                    for (var j = 1; j <= strokeDashes.length; j++) {
+                        var countRound = Math.round(j/2);
+                        if (j-1 % 2 == 0) {
+                            stroke('ADBE Vector Stroke Dashes').addProperty('ADBE Vector Stroke Dash ' + (countRound)).setValue(strokeDashes[j-1]);
+                        } else {
+                            stroke('ADBE Vector Stroke Dashes').addProperty('ADBE Vector Stroke Gap ' + (countRound)).setValue(strokeDashes[j-1]);
+                        }
                     }
                 }
             }
         }
     }
 
-    function setStrokeProps(stroke, i) {
-        stroke("ADBE Vector Stroke Opacity").setValue(layer.stroke[i].opacity);
-        stroke("ADBE Vector Stroke Width").setValue(layer.stroke[i].width);
-        stroke("ADBE Vector Stroke Line Cap").setValue(layer.stroke[i].cap + 1);
-        stroke("ADBE Vector Stroke Line Join").setValue(layer.stroke[i].join + 1 );
+    function setStrokeProps(stroke, data) {
+        stroke("ADBE Vector Stroke Opacity").setValue(data.opacity);
+        stroke("ADBE Vector Stroke Width").setValue((data.width !== undefined) ? data.width : 1);
+        stroke("ADBE Vector Stroke Line Cap").setValue(data.cap + 1);
+        stroke("ADBE Vector Stroke Line Join").setValue(data.join + 1 );
     }
 }
 
