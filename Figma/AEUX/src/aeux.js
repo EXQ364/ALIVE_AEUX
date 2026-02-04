@@ -191,10 +191,12 @@ function getText(layer, parentFrame) {
 
     var tempFrame = getFrame(layer, parentFrame);
     var lineHeight = getLineHeight(layer);
+    console.log(tempFrame)
+    console.log(lineHeight)
     frame = {
-        width: layer.width + 1,
+        width: layer.width,
         height: layer.height,
-        x: tempFrame.x+1,
+        x: tempFrame.x,
         y: tempFrame.y + lineHeight - layer.fontSize,
     };
     
@@ -366,11 +368,31 @@ function getComponent(layer, parentFrame) {
     // check if an autoLayout
     // if (layer.layoutMode !== 'NONE' || layer.type == 'AUTOLAYOUT') {
         
-        layerData.layers = filterTypes(layer)
-        // console.log('background', getShape(layer));
-        
-        layerData.layers.unshift(getShape(layer, frame))  // add the background of the frame
-        layerData.layers[0].type = 'AutoLayoutBG'
+        layerData.layers = filterTypes(layer);
+
+    // ГЕНЕРАЦИЯ ФОНА
+    // Мы создаем шейп из САМОГО родителя (layer)
+    let bgLayer = getShape(layer, frame); 
+    
+    bgLayer.type = 'AutoLayoutBG';
+    
+    // --- ИСПРАВЛЕНИЕ ТУТ ---
+    // Так как этот слой будет лежать ВНУТРИ родителя в AE,
+    // он должен иметь нулевые трансформации относительно родителя.
+    
+    bgLayer.rotation = 0;          // Сбрасываем поворот
+    bgLayer.flip = [100, 100];     // Сбрасываем флип (масштаб)
+    
+    // Если родитель был повернут, getShape мог рассчитать смещенный frame.x/y.
+    // Для фона, который равен размеру родителя, координаты должны быть [0,0] или центр.
+    // Обычно getShape возвращает координаты центра. 
+    // Для фона внутри группы AE координаты должны быть (width/2, height/2).
+    
+    bgLayer.frame.x = layerData.frame.width / 2;
+    bgLayer.frame.y = layerData.frame.height / 2;
+
+    // Добавляем исправленный фон в начало списка
+    layerData.layers.unshift(bgLayer);
     // } else {
         // layerData.layers = filterTypes(layer, {x: frame.width/2, y: frame.height/2, width: frame.width, height: frame.height})
         // layerData.layers = filterTypes(layer, frame)
@@ -1472,18 +1494,57 @@ function parseSvg(str, transformed) {
     return pathObj;
 }
 
+//// 1. Функция расчета Масштаба и Флипа
 function getFlipMultiplier(layer) {
-    var matrix = layer.relativeTransform;
-    var x = (matrix[0][0] < 0) ? -100 : 100;     // horizontal flip
-    var y = (matrix[1][1] < 0) ? -100 : 100;     // vertical flip
-// console.log(layer.name, layer.relativeTransform);
+    var m = layer.relativeTransform;
+    
+    // Вектор оси X (первый столбец матрицы)
+    var a = m[0][0];
+    var c = m[1][0];
 
-    // return [100, 100];
-    return [x, y];
+    // Вектор оси Y (второй столбец матрицы)
+    var b = m[0][1];
+    var d = m[1][1];
+
+    // 1. Считаем реальную длину вектора X (Scale X)
+    var sx = Math.sqrt(a * a + c * c);
+    
+    // 2. Считаем Детерминант (площадь + ориентация)
+    var det = a * d - b * c;
+
+    // 3. Считаем Scale Y
+    // Вся информация о "зеркальности" (флипе) математически живет в знаке детерминанта.
+    // Мы передаем этот знак в Scale Y.
+    // Если sx = 0 (вырожденная матрица), ставим 0.
+    var sy = (sx === 0) ? 0 : det / sx;
+
+    // After Effects поймет:
+    // [100, 100] -> обычный слой
+    // [100, -100] -> слой отзеркален (неважно, горизонтально или вертикально, угол Rotation довернет остальное)
+    return [
+        Math.round(sx * 10000) / 100, 
+        Math.round(sy * 10000) / 100
+    ];
 }
+
+//// 2. Функция расчета Угла
 function getRotation(layer) {
-    var matrix = layer.relativeTransform;
-    // var flip = (layer.type == 'group' && matrix[1][1] < 0) ? -1 : 1;
-    var flip = (matrix[0][0] < 0 || matrix[1][1] < 0) ? -1 : 1;
-    return -(Math.asin(matrix[0][1]) / (Math.PI / 180)).toFixed(3) * flip;
+    var m = layer.relativeTransform;
+    
+    // Нам нужно знать только, куда смотрит ось X слоя.
+    // m[1][0] - это Sin (смещение по Y)
+    // m[0][0] - это Cos (смещение по X)
+    
+    // Math.atan2(y, x) возвращает угол в радианах от -PI до PI.
+    // Благодаря тому, что у Figma и AE ось Y смотрит вниз,
+    // положительный результат здесь == поворот по часовой стрелке.
+    var angle = Math.atan2(m[1][0], m[0][0]);
+    
+    // Переводим радианы в градусы
+    var degree = angle * (180 / Math.PI);
+    
+    // НИКАКИХ "МИНУСОВ" НЕ НУЖНО.
+    // Если вектор X смотрит вниз (m[1][0] > 0), угол будет положительным (например, 45).
+    // AE повернет слой по часовой на 45. Все совпадает.
+    return degree; 
 }
