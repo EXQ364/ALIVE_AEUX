@@ -624,58 +624,85 @@ function getBoolType (layer) {
     }
 }
 function getFrame(layer, parentFrame, constrainFrame) {
-    var matrix = layer.relativeTransform;
-    var isRotated = matrix[0][0] != 1;
-    var isFlipped = (matrix[0][0] < 0 && matrix[1][1] > 0) || (matrix[0][0] > 0 && matrix[1][1] < 0);
-    var flippedHorizontal = matrix[0][0] < 0 && matrix[1][1] > 0;
-    var flippedVertical = matrix[0][0] > 0 && matrix[1][1] < 0;
-    
-    
-    var offset = [0,0];
-    if (parentFrame) {
-        offset = [parentFrame.x - parentFrame.width/2, parentFrame.y - parentFrame.height/2];
-    }
-    
-
     var width = layer.width || 0;
     var height = layer.height || 0;
-    // find the center of the shape
-    var hypot = Math.sqrt(width/2 * width/2 + height/2 * height/2);
-    var angle = layer.rotation * (Math.PI/180);
+    var m = layer.relativeTransform; // [[a, b, tx], [c, d, ty]]
 
-    //   var vertOffset = 0;
-    // var horizOffset = 0;
-    if (flippedHorizontal) { 
-        offset[1] -= height;
+    // --- ЛОГИКА ДЛЯ ИЗОБРАЖЕНИЙ (constrainFrame = true) ---
+    // Если это картинка, она будет растеризована/экспортирована как прямоугольник.
+    // Нам нужно найти Bounding Box повернутого слоя, а затем обрезать его краями артборда.
+    if (constrainFrame && typeof frameSize !== 'undefined') {
+        
+        // 1. Вычисляем координаты 4-х углов повернутого изображения в пространстве родителя
+        // Формула: x' = tx + a*x + b*y, y' = ty + c*x + d*y
+        function getCorner(x, y) {
+            return {
+                x: m[0][2] + m[0][0] * x + m[0][1] * y,
+                y: m[1][2] + m[1][0] * x + m[1][1] * y
+            };
+        }
+
+        var p1 = getCorner(0, 0);          // Top-Left
+        var p2 = getCorner(width, 0);      // Top-Right
+        var p3 = getCorner(0, height);     // Bottom-Left
+        var p4 = getCorner(width, height); // Bottom-Right
+
+        // 2. Находим границы Bounding Box (min/max X и Y)
+        var minX = Math.min(p1.x, p2.x, p3.x, p4.x);
+        var maxX = Math.max(p1.x, p2.x, p3.x, p4.x);
+        var minY = Math.min(p1.y, p2.y, p3.y, p4.y);
+        var maxY = Math.max(p1.y, p2.y, p3.y, p4.y);
+
+        // 3. Если есть родительская группа, корректируем координаты (делаем локальными для группы, но абсолютными для артборда логически)
+        // В данном контексте parentFrame используется для смещения относительно артборда.
+        // Если parentFrame передан, значит координаты слоя локальны для него.
+        if (parentFrame) {
+            var parentLeft = parentFrame.x - (parentFrame.width / 2);
+            var parentTop = parentFrame.y - (parentFrame.height / 2);
+            
+            // Смещаем bounding box так, как будто он лежит на артборде
+            minX -= parentLeft;
+            maxX -= parentLeft;
+            minY -= parentTop;
+            maxY -= parentTop;
+        }
+
+        // 4. Кропаем (обрезаем) полученный Bounding Box границами Артборда (frameSize)
+        // Картинка не может вылезать за пределы [0, 0] и [frameWidth, frameHeight]
+        
+        // Левый край: не меньше 0, но и не больше ширины артборда (на случай если картинка полностью справа)
+        var finalLeft = Math.max(0, Math.min(minX, frameSize[0])); 
+        var finalTop = Math.max(0, Math.min(minY, frameSize[1]));
+        
+        // Правый край: не больше ширины артборда, но не меньше 0
+        var finalRight = Math.min(frameSize[0], Math.max(maxX, 0));
+        var finalBottom = Math.min(frameSize[1], Math.max(maxY, 0));
+
+        // 5. Итоговые размеры и центр
+        var finalWidth = finalRight - finalLeft;
+        var finalHeight = finalBottom - finalTop;
+
+        return {
+            width: finalWidth,
+            height: finalHeight,
+            x: finalLeft + finalWidth / 2,
+            y: finalTop + finalHeight / 2
+        };
     }
 
-    var x = layer.x + Math.cos(Math.atan2(height, width) - angle) * hypot - offset[0];
-    var y = layer.y + Math.sin(Math.atan2(height, width) - angle) * hypot - offset[1];
+    // --- ЛОГИКА ДЛЯ ОБЫЧНЫХ СЛОЕВ (Vector, Group, Text) ---
+    // Здесь мы считаем математический центр фигуры для AE.
+    
+    var x = m[0][2] + (m[0][0] * width / 2) + (m[0][1] * height / 2);
+    var y = m[1][2] + (m[1][0] * width / 2) + (m[1][1] * height / 2);
 
-    if (layer.type == 'TEXT') {
-        // y = (layer.y + 19.5) + Math.sin(Math.atan2(height, width) - angle) * hypot - offset[1];
+    if (parentFrame) {
+        var parentLeft = parentFrame.x - (parentFrame.width / 2);
+        var parentTop = parentFrame.y - (parentFrame.height / 2);
+        x -= parentLeft;
+        y -= parentTop;
     }
 
-    if (constrainFrame) {
-        if (layer.x < 0) {      // off the left edge
-            width += layer.x
-            x -= layer.x / 2
-        }
-        if (layer.x + layer.width > frameSize[0]) {      // off the right edge
-            width -= (layer.width + layer.x) - frameSize[0]
-            x -= ((layer.width + layer.x) - frameSize[0]) / 2
-        }
-        if (layer.y < 0) {      // off the top edge
-            height += layer.y
-            y -= layer.y / 2
-        }
-        if (layer.y + layer.height > frameSize[1]) {      // off the bottom edge
-            height -= (layer.height + layer.y) - frameSize[1]
-            y -= ((layer.height + layer.y) - frameSize[1]) / 2
-        }
-    }
-
-    // console.log(layer.name, offset);
     return {
         width: width,
         height: height,
@@ -785,34 +812,39 @@ function getFills(layer, parentFrame) {
 }
 //// get layer data: IMAGE
 function getImageFill(layer, parentFrame) {
-    let frame = getFrame(layer, parentFrame, true)
-    // console.log('frameSize', frame);
+    // 1. Вызываем getFrame с флагом true (constrainFrame).
+    // Функция getFrame (которую мы исправили ранее) САМА обрежет размеры 
+    // и пересчитает координаты центра (x, y), если картинка выходит за края.
+    let frame = getFrame(layer, parentFrame, true);
+
+    // 2. Дополнительная страховка (Sanity Check)
+    // На случай погрешностей float-чисел (например 400.000001 > 400),
+    // просто подрезаем размер, НО НЕ ТРОГАЕМ позицию (x/y).
+    if (frame.width > frameSize[0]) frame.width = frameSize[0];
+    if (frame.height > frameSize[1]) frame.height = frameSize[1];
     
-    // resize the image frame to fit within the frame because the exported image will be cropped
-    if (frame.width > frameSize[0]) {
-        frame.width = frameSize[0]
-        frame.x = frameSize[0] / 2
-    }
-    if (frame.height > frameSize[1]) {
-        frame.height = frameSize[1]
-        frame.y = frameSize[1] / 2
-    }
-    
-    
+    // ВАЖНО: Мы удалили блоки, которые сбрасывали frame.x и frame.y в центр.
+    // Теперь позиция будет такой, какую рассчитала матрица.
+
 	let layerData =  {
         type: 'Image',
-        name: layer.name.toString().replace(/[\\:"*?%<>|]/g, '-'),     // replace illegal characters
+        name: layer.name.toString().replace(/[\\:"*?%<>|]/g, '-'),
         id: layer.id.replace(/:/g, '-'),
         frame: frame,
         isVisible: (layer.visible !== false),
-        opacity: 100,
+        opacity: 100, 
         blendMode: getLayerBlending(layer.blendMode),
         isMask: layer.isMask,
-        rotation: 0,
-        // rotation: getRotation(layer),
+        
+        // 3. Rotation
+        // Если мы используем constrainFrame (обрезаем картинку по границам артборда),
+        // то результат всегда становится прямоугольником, выровненным по осям (Axis Aligned).
+        // Поэтому вращение должно быть 0. Если оставить реальный угол слоя, 
+        // AE повернет уже обрезанный прямоугольник, и будет дырка.
+        rotation: 0, 
     };
-    getEffects(layer, layerData);
 
+    getEffects(layer, layerData);
 
     return layerData;
 }
