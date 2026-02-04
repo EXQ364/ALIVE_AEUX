@@ -1184,6 +1184,7 @@ var AEUX = (function () {
                 if (layer.blur[i].type == 0) {
                     blur = r.property('Effects').addProperty('ADBE Gaussian Blur 2');
                     blur.property('ADBE Gaussian Blur 2-0001').setValue(layer.blur[i].radius * compMult);
+                    blur.property('ADBE Gaussian Blur 2-0003').setValue(false);
                     return;
                 }
                 if (layer.blur[i].type == 1) {
