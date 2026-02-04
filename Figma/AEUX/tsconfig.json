@@ -1,7 +1,10 @@
 {
   "compilerOptions": {
     "target": "es6",
+    "lib": ["dom", "dom.iterable", "es6"],
     "moduleResolution": "node",
+    "allowJs": true, 
+    "strict": true,
     "typeRoots": [
       "./node_modules/@types",
       "./node_modules/@figma"

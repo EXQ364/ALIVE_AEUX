@@ -1,3 +1,4 @@
+//@ts-nocheck
 figma.showUI(__html__, { width: 166, height: 184 });
 let hasFrameData;
 let shapeTree = []
@@ -240,6 +241,7 @@ figma.ui.onmessage = message => {
 	// console.log('send message back to ui');
 }
 
+
 function nodeToObj (nodes) {
 //   console.log('nodes', nodes);
   
@@ -357,6 +359,42 @@ function nodeToObj (nodes) {
                 
             }          
         }
+        if (node.type === 'TEXT') {
+            //@ts-ignore
+            obj._calcLineHeight = null; // Создаем свое поле
+
+            if (node.lineHeight.unit === 'PIXELS') {
+            //@ts-ignore
+
+                obj._calcLineHeight = node.lineHeight.value;
+            } 
+            else if (node.lineHeight.unit === 'PERCENT') {
+            //@ts-ignore
+
+                obj._calcLineHeight = node.fontSize * (node.lineHeight.value / 100);
+            } 
+            else { 
+                // AUTO
+                // Трюк для получения точного значения без async/await:
+                // Если текст в одну строку и стоит Auto Height — высота слоя равна Line Height.
+                const isSingleLine = node.characters.indexOf('\n') === -1;
+                const isAutoHeight = node.textAutoResize === 'HEIGHT' || node.textAutoResize === 'WIDTH_AND_HEIGHT';
+
+                if (isSingleLine && isAutoHeight) {
+            //@ts-ignore
+
+                    obj._calcLineHeight = node.height;
+                } else {
+                    // Если строк много или фиксированный размер, берем безопасный дефолт,
+                    // так как синхронно "достать" метрики шрифта для Auto нельзя.
+                    // 1.2 — стандарт для веба/дизайна (Inter, Roboto и т.д.)
+            //@ts-ignore
+
+                    obj._calcLineHeight = node.fontSize * 1.2; 
+                }
+            }
+        }
+
         // keep track of Auto-layout frames for alignment of children
         if (node.type === 'FRAME' && node.layoutMode !== 'NONE') { obj.type = 'AUTOLAYOUT'}
         

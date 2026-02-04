@@ -192,11 +192,10 @@ function getText(layer, parentFrame) {
     var tempFrame = getFrame(layer, parentFrame);
     var lineHeight = getLineHeight(layer);
     frame = {
-        width: layer.width,
+        width: layer.width + 1,
         height: layer.height,
-        x: tempFrame.x,
-        // y: 454, //428
-        y: tempFrame.y,
+        x: tempFrame.x+1,
+        y: tempFrame.y + lineHeight - layer.fontSize,
     };
     
 	var layerData =  {
@@ -276,19 +275,21 @@ function getText(layer, parentFrame) {
 
         return 0;
     }
+
     function getLineHeight(layer) {
-        if (layer.lineHeight.unit == 'PIXELS') {
-            return layer.lineHeight.value;
-        } else if (layer.lineHeight.unit == 'PERCENT') {
-            return layer.fontSize * (layer.lineHeight.value / 100); 
-        } else {        // line height set to auto
-            return layer.height / layer.fontSize;
-            // return null;
+        // Мы уже посчитали всё в nodeToObj, просто возвращаем значение
+        if (layer._calcLineHeight !== undefined && layer._calcLineHeight !== null) {
+            return layer._calcLineHeight;
         }
+        
+        // Фолбэк на случай, если данные не пришли
+        if (layer.lineHeight && layer.lineHeight.unit === 'PIXELS') return layer.lineHeight.value;
+        return layer.fontSize * 1.2;
     }
+    
     function getTracking(layer) {
         if (layer.letterSpacing.unit == 'PIXELS') {
-            return layer.fontSize * layer.letterSpacing.value * 3.9;
+            return layer.letterSpacing.value / layer.fontSize * 1000;
         } else if (layer.letterSpacing.unit == 'PERCENT') {
             return layer.letterSpacing.value * 10;
         } else {
@@ -817,71 +818,83 @@ function getImageFill(layer, parentFrame) {
 }
 //// get layer data: STROKE
 function getStrokes(layer) {
-    /// get layer style object
-    // var style = layer.sketchObject.style();
+    var computedStrokeWidth = layer.strokeWeight;
+    
+    // Проверяем, поддерживает ли слой индивидуальные веса обводок
+    if ('strokeTopWeight' in layer) {
+        computedStrokeWidth = Math.max(
+            layer.strokeTopWeight || 0,
+            layer.strokeBottomWeight || 0,
+            layer.strokeLeftWeight || 0,
+            layer.strokeRightWeight || 0
+        );
+    }
+    // Если по какой-то причине max вернул 0 (например, странный баг), 
+    // но общий вес есть, подстрахуемся (опционально, но полезно)
+    if (computedStrokeWidth === 0 && layer.strokeWeight > 0) {
+        computedStrokeWidth = layer.strokeWeight;
+    }
 
-    // /// check if the layer has at least one stroke
-    // var hasStroke = ( style.firstEnabledstroke() ) ? true : false;
+	var strokeData = [];
+    var strokes = layer.strokes;
+    // var size = [layer.width, layer.height]; // кажется, не используется в этом сниппете, но оставим если нужно
 
-	// if (hasStroke) {
-        var strokeData = [];
-        var strokes = layer.strokes;
-        var size = [layer.width, layer.height];
+    // loop through all strokes
+    for (var i = 0; i < strokes.length; i++) {
+        var stroke = strokes[i];
+        if (stroke.visible !== false) {
+            var strokeObj = {}
+            var fillType = getFillType(stroke.type);   /// find type and if a gradient get the grad type
+            
+            // stroke is a gradient
+            if (fillType[0] > 0) {
+                var gradType = fillType[1];
 
-        // loop through all strokes
-        for (var i = 0; i < strokes.length; i++) {
-            var stroke = strokes[i];
-            if (stroke.visible !== false) {
-                var strokeObj = {}
-                var fillType = getFillType(stroke.type);   /// find type and if a gradient get the grad type
-                // stroke is a gradient
-                if (fillType[0] > 0) {
-                    var gradType = fillType[1];
+                let points = {}
+                if (gradType == 2) {
+                    let radialPoints = extractRadialOrDiamondGradientParams(layer.width, layer.height, stroke.gradientTransform)
+                    let rad = radialPoints.radius[0]
+                    points.start = radialPoints.center
+                    points.end = [points.start[0] + rad, points.start[1]]
+                } else {
+                    points = extractLinearGradientParamsFromTransform(layer.width, layer.height, stroke.gradientTransform)
+                }  
 
-                    let points = {}
-                    if (gradType == 2) {
-                        let radialPoints = extractRadialOrDiamondGradientParams(layer.width, layer.height, stroke.gradientTransform)
-                        let rad = radialPoints.radius[0]
-                        points.start = radialPoints.center
-                        points.end = [points.start[0] + rad, points.start[1]]
-                    } else {
-                        points = extractLinearGradientParamsFromTransform(layer.width, layer.height, stroke.gradientTransform)
-                    }  
-
-                    strokeObj = {
-                        type: 'gradient',
-                        startPoint: [points.start[0] - layer.width / 2, points.start[1] - layer.height / 2],
-                        endPoint: [points.end[0] - layer.width / 2, points.end[1] - layer.height / 2],
-                        gradType:  gradType,
-                        gradient: getGradient(stroke.gradientStops),
-        				opacity: 100,
-        				width: layer.strokeWeight,
-        				cap: getCap(layer),
-        				join: getJoin(layer),
-                        strokeDashes: layer.dashPattern,
-                        blendMode: getShapeBlending( stroke.blendMode ),
-        			}
-                // stroke is a solid
-                } else {                    
-                    var color = colorObjToArray(stroke);
-                    strokeObj = {
-                        type: 'fill',
-                        enabled: stroke.visible !== false,
-        				color: color,
-        				opacity: color[3] * 100,
-        				width: layer.strokeWeight,
-        				cap: getCap(layer),
-        				join: getJoin(layer),
-                        strokeDashes: layer.dashPattern,
-                        blendMode: getShapeBlending( stroke.blendMode ),
-        			}
+                strokeObj = {
+                    type: 'gradient',
+                    startPoint: [points.start[0] - layer.width / 2, points.start[1] - layer.height / 2],
+                    endPoint: [points.end[0] - layer.width / 2, points.end[1] - layer.height / 2],
+                    gradType:  gradType,
+                    gradient: getGradient(stroke.gradientStops),
+                    opacity: 100,
+                    width: computedStrokeWidth, // ИСПОЛЬЗУЕМ ВЫЧИСЛЕННУЮ ШИРИНУ
+                    cap: getCap(layer),
+                    join: getJoin(layer),
+                    strokeDashes: layer.dashPattern,
+                    blendMode: getShapeBlending( stroke.blendMode ),
                 }
+            // stroke is a solid
+            } else {                    
+                var color = colorObjToArray(stroke);
+                strokeObj = {
+                    type: 'fill',
+                    enabled: stroke.visible !== false,
+                    color: color,
+                    opacity: color[3] * 100,
+                    width: computedStrokeWidth, // ИСПОЛЬЗУЕМ ВЫЧИСЛЕННУЮ ШИРИНУ
+                    cap: getCap(layer),
+                    join: getJoin(layer),
+                    strokeDashes: layer.dashPattern,
+                    blendMode: getShapeBlending( stroke.blendMode ),
+                }
+            }
 
             // add obj string to array
-			strokeData.push(strokeObj);
-		}
-	}
-		return strokeData;															// return array of all strokes
+            strokeData.push(strokeObj);
+        }
+    }
+    return strokeData;
+
     function getCap(layer) {
         if (layer.strokeCap == 'ROUND') {
             return 1;

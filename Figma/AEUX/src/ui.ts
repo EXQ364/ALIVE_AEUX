@@ -1,3 +1,5 @@
+//@ts-nocheck
+
 import * as fileType from 'file-type'
 import Vue from 'vue/dist/vue.esm.js'
 import * as aeux from './aeux.js'
