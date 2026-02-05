@@ -1,8 +1,13 @@
-.DS_Store
-node_modules
-archive
+# Игнорирует node_modules в корне и в любой подпапке (на любой глубине)
+node_modules/
 
-# local env files
+# Mac OS системные файлы
+.DS_Store
+
+# Папки архивов
+archive/
+
+# Local env files
 .env.local
 .env.*.local
 
@@ -12,8 +17,8 @@ yarn-debug.log*
 yarn-error.log*
 
 # Editor directories and files
-.idea
-.vscode
+.idea/
+.vscode/
 *.suo
 *.ntvs*
 *.njsproj
