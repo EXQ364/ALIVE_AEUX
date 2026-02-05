@@ -624,14 +624,24 @@ function getFrame(layer, parentFrame, constrainFrame) {
         // В данном контексте parentFrame используется для смещения относительно артборда.
         // Если parentFrame передан, значит координаты слоя локальны для него.
         if (parentFrame) {
-            var parentLeft = parentFrame.x - (parentFrame.width / 2);
-            var parentTop = parentFrame.y - (parentFrame.height / 2);
+            // Если мы внутри группы, мы НЕ должны обрезать картинку границами артборда,
+            // так как локальные координаты не совпадают с глобальными.
+            // Мы просто возвращаем Bounding Box, пересчитанный от ЦЕНТРА родителя.
             
-            // Смещаем bounding box так, как будто он лежит на артборде
-            minX -= parentLeft;
-            maxX -= parentLeft;
-            minY -= parentTop;
-            maxY -= parentTop;
+            var localWidth = maxX - minX;
+            var localHeight = maxY - minY;
+            
+            // Центр картинки в системе координат "Top-Left" родителя
+            var centerX = minX + (localWidth / 2);
+            var centerY = minY + (localHeight / 2);
+
+            return {
+                width: localWidth,
+                height: localHeight,
+                // Смещаем центр: от (0,0) родителя к (width/2, height/2) родителя
+                x: centerX - (parentFrame.width / 2),
+                y: centerY - (parentFrame.height / 2)
+            };
         }
 
         // 4. Кропаем (обрезаем) полученный Bounding Box границами Артборда (frameSize)
@@ -660,14 +670,17 @@ function getFrame(layer, parentFrame, constrainFrame) {
     // --- ЛОГИКА ДЛЯ ОБЫЧНЫХ СЛОЕВ (Vector, Group, Text) ---
     // Здесь мы считаем математический центр фигуры для AE.
     
+    // 1. Считаем центр слоя в системе координат родителя (от левого верхнего угла)
+    // m[0][2] и m[1][2] — это уже локальные координаты относительно родителя (спасибо Figma API)
     var x = m[0][2] + (m[0][0] * width / 2) + (m[0][1] * height / 2);
     var y = m[1][2] + (m[1][0] * width / 2) + (m[1][1] * height / 2);
 
     if (parentFrame) {
-        var parentLeft = parentFrame.x - (parentFrame.width / 2);
-        var parentTop = parentFrame.y - (parentFrame.height / 2);
-        x -= parentLeft;
-        y -= parentTop;
+        // 2. Переводим в систему координат After Effects.
+        // AE считает (0,0) в центре родителя. Figma — в левом верхнем углу.
+        // Нам нужно просто сдвинуть наши координаты на половину ширины/высоты родителя.
+        x -= parentFrame.width / 2;
+        y -= parentFrame.height / 2;
     }
 
     return {
@@ -1119,19 +1132,44 @@ function getShapeBlending(mode) {
 
 //// get shape data: PATH
 function getPath(layer, bounding) {
-    // 1. Collect Geometry Sources
-    var fillPaths = layer.fillGeometry || [];
-    var strokePaths = layer.strokeGeometry || [];
+    var combinedData = [];
 
-    // Fallback for Primitives without vector networks
+    // 1. ПРИОРИТЕТ: vectorPaths (Скелет вектора)
+    if (layer.vectorPaths && layer.vectorPaths.length > 0) {
+        var vPaths = Array.isArray(layer.vectorPaths) ? layer.vectorPaths : [layer.vectorPaths];
+        for (var i = 0; i < vPaths.length; i++) {
+            var d = vPaths[i].data || vPaths[i];
+            
+            // ИСПРАВЛЕНИЕ: Автоматическое определение заливки по замкнутости пути
+            var isClosed = (d.indexOf('Z') > -1 || d.indexOf('z') > -1);
+
+            combinedData.push({
+                data: d,
+                key: i,
+                isFill: isClosed, // Только замкнутые фигуры получают заливку
+                isStroke: true
+            });
+        }
+    } 
+    // 2. ЗАПАСНОЙ ВАРИАНТ: fillGeometry
+    else if (layer.fillGeometry && layer.fillGeometry.length > 0) {
+        var fillPaths = layer.fillGeometry;
+        for (var i = 0; i < fillPaths.length; i++) {
+            var d = fillPaths[i].data;
+            if (!d) continue;
+            combinedData.push({ data: d, key: d, isFill: true, isStroke: true });
+        }
+    }
+    
+    // Fallback для примитивов (прямоугольники, круги)
     const allEqual = arr => arr.every(v => v === arr[0]);
-    var isPrimitive = (
+    var isPrimitive = (combinedData.length === 0) && (
         (layer.type == 'RECTANGLE' && allEqual([layer.topLeftRadius, layer.topRightRadius, layer.bottomLeftRadius, layer.bottomRightRadius])) ||
         layer.type == 'ELLIPSE' || 
         layer.type == 'LINE'
     );
 
-    if (isPrimitive && fillPaths.length === 0 && strokePaths.length === 0 && !layer.vectorPaths) {
+    if (isPrimitive) {
         if (layer.type == 'RECTANGLE') return { points: [[0, 0], [bounding.width, 0], [bounding.width, bounding.height], [0, bounding.height]], inTangents: [], outTangents: [], closed: true };
         if (layer.type == 'ELLIPSE') {
             var k = 0.5522847498; var hw = bounding.width / 2; var hh = bounding.height / 2; var ox = hw * k; var oy = hh * k;
@@ -1140,70 +1178,41 @@ function getPath(layer, bounding) {
         if (layer.type == 'LINE') return { points: [[0, 0], [bounding.width, bounding.height]], inTangents: [], outTangents: [], closed: false };
     }
 
-    // 2. Combine and Tag Geometry
-    var combinedData = [];
-    var seenPaths = new Set(); // To avoid duplicates if a path is both filled and stroked
-
-    // Helper to add paths
-    const addPaths = (sourcePaths, isFill, isStroke) => {
-        for (var i = 0; i < sourcePaths.length; i++) {
-            var d = sourcePaths[i].data;
-            if (!d) continue;
-            
-            // Simple hash for dedup logic
-            var key = d.substring(0, 100) + d.length; 
-            
-            var existing = combinedData.find(item => item.key === key);
-            
-            if (existing) {
-                // If it exists, merge flags
-                if (isFill) existing.isFill = true;
-                if (isStroke) existing.isStroke = true;
-            } else {
-                combinedData.push({
-                    data: d,
-                    key: key,
-                    isFill: isFill,
-                    isStroke: isStroke
-                });
-            }
-        }
-    };
-
-    addPaths(fillPaths, true, true);
-
-    // Fallback to old vectorPaths if new API failed
-    if (combinedData.length === 0 && layer.vectorPaths) {
-        var vPaths = Array.isArray(layer.vectorPaths) ? layer.vectorPaths : [layer.vectorPaths];
-        // Assume old behavior: applies to both
-        for (var i = 0; i < vPaths.length; i++) {
-            combinedData.push({ data: vPaths[i].data || vPaths[i], isFill: true, isStroke: true });
-        }
-    }
-
-    // 3. Parse All Paths
+    // Парсинг и глобальный сдвиг (из предыдущего шага, без изменений)
     var parsedPaths = [];
+    var globalMinX = Infinity;
+    var globalMinY = Infinity;
+
     for (var i = 0; i < combinedData.length; i++) {
-        // parseSvg now returns an ARRAY of paths (handling M commands inside string)
-        var svgResult = parseSvg(combinedData[i].data, true);
+        var svgResult = parseSvg(combinedData[i].data, false);
         
         for (var p = 0; p < svgResult.length; p++) {
-            // Propagate rendering flags
+            for (var pt of svgResult[p].points) {
+                if (pt[0] < globalMinX) globalMinX = pt[0];
+                if (pt[1] < globalMinY) globalMinY = pt[1];
+            }
             svgResult[p].renderFill = combinedData[i].isFill;
             svgResult[p].renderStroke = combinedData[i].isStroke;
             parsedPaths.push(svgResult[p]);
         }
     }
 
-    // 4. Return Result
+    if (globalMinX !== Infinity && globalMinY !== Infinity) {
+        parsedPaths.forEach(p => {
+            for (var j = 0; j < p.points.length; j++) {
+                p.points[j][0] -= globalMinX;
+                p.points[j][1] -= globalMinY;
+            }
+        });
+    }
+
     if (parsedPaths.length > 1) {
-        layer._aeuxParsedPaths = parsedPaths; // Store for getCompoundPaths
+        layer._aeuxParsedPaths = parsedPaths;
         return 'multiPath';
     }
 
     return parsedPaths[0] || { points: [], inTangents: [], outTangents: [], closed: false };
 }
-
 function parseSvg(str, transformed) {
     var paths = [];
     var currentPath = null;
