@@ -571,97 +571,229 @@ var AEUX = (function () {
     }
     function aeCompound(layer, opt_parent) {
         var r = initShapeLayer(layer, opt_parent);
-        var group = r(2).addProperty('ADBE Vector Group');
+        var rootContents = r.property("ADBE Root Vectors Group");
+        var group = rootContents.addProperty('ADBE Vector Group');
         group.name = layer.name;
         createCompoundShapes(group, layer);
-        if (!group(2)('ADBE Vector Filter - Merge')) {
-            addMerge(group, layer.booleanOperation);
+        var groupContents = getContents(group);
+        if (groupContents) {
+            var existingMerge = groupContents.property('ADBE Vector Filter - Merge');
+            if (!existingMerge) {
+                addMerge(group, layer.booleanOperation);
+            }
         }
-        addStroke(r, layer);
-        addFill(r, layer);
         addDropShadow(r, layer);
         addBlur(r, layer);
         addInnerShadow(r, layer);
         setLayerBlendMode(r, layer);
-        r(2)(1)('ADBE Vector Transform Group')('ADBE Vector Scale').setValue([100 * compMult, 100 * compMult]);
-        r('ADBE Transform Group')('ADBE Rotate Z').setValue(layer.rotation);
-        r('ADBE Transform Group')('ADBE Position').setValue([layer.frame.x * compMult, layer.frame.y * compMult]);
-        r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
-        r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
+        var anchorPoint = [layer.frame.width / 2, layer.frame.height / 2];
+        var vecTransform = group.property('ADBE Vector Transform Group');
+        if (vecTransform) {
+            vecTransform.property('ADBE Vector Anchor').setValue(anchorPoint);
+            vecTransform.property('ADBE Vector Position').setValue(anchorPoint);
+            vecTransform.property('ADBE Vector Scale').setValue([100 * compMult, 100 * compMult]);
+            vecTransform.property('ADBE Vector Rotation').setValue(0);
+        }
+        var layerTransform = r.property('ADBE Transform Group');
+        layerTransform.property('ADBE Anchor Point').setValue(anchorPoint);
+        layerTransform.property('ADBE Position').setValue([
+            layer.frame.x * compMult,
+            layer.frame.y * compMult
+        ]);
+        layerTransform.property('ADBE Rotate Z').setValue(layer.rotation);
+        layerTransform.property('ADBE Opacity').setValue(layer.opacity);
+        layerTransform.property('ADBE Scale').setValue(layer.flip);
         if (opt_parent !== null) {
             r.setParentWithJump(opt_parent);
             r.moveAfter(opt_parent);
         }
         setMask(r, layer);
         addBgBlur(r, layer);
-        function createCompoundShapes(group, layer) {
-            var layerCount = layer.layers.length || 1;
+        function getContents(propGroup) {
+            var contents = propGroup.property("ADBE Vectors Group");
+            if (!contents)
+                contents = propGroup.property("Contents");
+            if (!contents)
+                contents = propGroup.property(2);
+            return contents;
+        }
+        function createCompoundShapes(targetGroup, layerData) {
+            var layerCount = layerData.layers.length || 0;
+            var targetContents = getContents(targetGroup);
+            if (!targetContents)
+                return;
             for (var i = 0; i < layerCount; i++) {
-                if (layer.layers[i] == undefined) {
-                    return;
-                }
-                var shape = layer.layers[i];
-                var posOffset = [(layer.frame.width - shape.frame.width) / -2, (layer.frame.height - shape.frame.height) / -2];
+                var shape = layerData.layers[i];
+                if (!shape)
+                    continue;
                 if (shape.type === 'CompoundShape') {
-                    var subGroup = group(2).addProperty('ADBE Vector Group');
+                    var subGroup = targetContents.addProperty('ADBE Vector Group');
                     subGroup.name = shape.name;
-                    subGroup('ADBE Vector Transform Group')('ADBE Vector Position').setValue(posOffset + [shape.frame.x, shape.frame.y]);
                     createCompoundShapes(subGroup, shape);
                     continue;
                 }
                 if (shape.type === 'Rect' && prefs.parametrics) {
-                    var rect = group(2).addProperty('ADBE Vector Shape - Rect');
-                    rect('ADBE Vector Rect Size').setValue([shape.frame.width, shape.frame.height]);
-                    rect('ADBE Vector Rect Position').setValue(posOffset + [shape.frame.x, shape.frame.y]);
-                    rect('ADBE Vector Rect Roundness').setValue(shape.roundness);
+                    var rect = targetContents.addProperty('ADBE Vector Shape - Rect');
+                    rect.property('ADBE Vector Rect Size').setValue([shape.frame.width, shape.frame.height]);
+                    rect.property('ADBE Vector Rect Position').setValue([shape.frame.width / 2, shape.frame.height / 2]);
+                    rect.property('ADBE Vector Rect Roundness').setValue(shape.roundness);
                 }
                 if (shape.type === 'Ellipse' && prefs.parametrics) {
-                    var ellipse = group(2).addProperty('ADBE Vector Shape - Ellipse');
-                    ellipse('ADBE Vector Ellipse Size').setValue([shape.frame.width, shape.frame.height]);
-                    ellipse('ADBE Vector Ellipse Position').setValue(posOffset + [shape.frame.x, shape.frame.y]);
+                    var ellipse = targetContents.addProperty('ADBE Vector Shape - Ellipse');
+                    ellipse.property('ADBE Vector Ellipse Size').setValue([shape.frame.width, shape.frame.height]);
+                    ellipse.property('ADBE Vector Ellipse Position').setValue([shape.frame.width / 2, shape.frame.height / 2]);
                 }
                 if (shape.type === 'Path' || !prefs.parametrics) {
-                    var subGroup = needsSubGroup(group, shape);
-                    var vect = subGroup(2).addProperty('ADBE Vector Shape - Group');
-                    if (shape.path.points.length < 1) {
-                        return;
-                    }
+                    if (!shape.path || !shape.path.points || shape.path.points.length < 2)
+                        continue;
+                    var workGroup = needsSubGroup(targetGroup, shape);
+                    var workContents = getContents(workGroup);
+                    if (!workContents)
+                        continue;
+                    var vect = workContents.addProperty('ADBE Vector Shape - Group');
                     var pathProp = vect.property('ADBE Vector Shape');
-                    var vertices = shape.path.points;
-                    if (vertices.length < 1) { }
-                    var pathObj = {
-                        path: pathProp,
-                        points: shape.path.points,
-                        inTangents: shape.path.inTangents,
-                        outTangents: shape.path.outTangents,
-                        closed: shape.path.closed
-                    };
-                    createStaticShape(pathObj, [layer.frame.width / 2 - shape.frame.x, layer.frame.height / 2 - shape.frame.y]);
+                    if (!pathProp)
+                        pathProp = vect.property('Path');
+                    if (!pathProp)
+                        pathProp = vect.property(1);
+                    if (pathProp) {
+                        var pathObj = {
+                            path: pathProp,
+                            points: shape.path.points,
+                            inTangents: shape.path.inTangents || [],
+                            outTangents: shape.path.outTangents || [],
+                            closed: shape.path.closed
+                        };
+                        createStaticShape(pathObj, [0, 0]);
+                    }
                     if (shape.roundness > 0) {
-                        var round = group(2).addProperty('ADBE Vector Filter - RC');
-                        round('ADBE Vector RoundCorner Radius').setValue(shape.roundness);
+                        var round = workContents.addProperty('ADBE Vector Filter - RC');
+                        if (round)
+                            round.property('ADBE Vector RoundCorner Radius').setValue(shape.roundness);
+                    }
+                    if (shape.fill && shape.fill.length > 0) {
+                        addFillToGroup(workGroup, shape.fill);
+                    }
+                    if (shape.stroke && shape.stroke.length > 0) {
+                        addStrokeToGroup(workGroup, shape.stroke);
                     }
                 }
-                if (i == layer.layers.length - 1) {
-                    addMerge(group, shape.booleanOperation);
+                if (i == layerCount - 1 && layerData.booleanOperation > -1) {
+                    addMerge(targetGroup, layerData.booleanOperation);
                 }
             }
         }
-        function addMerge(group, bool) {
-            var merge = group(2).addProperty('ADBE Vector Filter - Merge');
-            merge('ADBE Vector Merge Type').setValue(bool + 2);
-        }
-        function needsSubGroup(group, shape) {
-            var subGroup = null;
-            if (shape.rotation != 0 || (shape.flip[0] != 100 || shape.flip[1] != 100)) {
-                subGroup = group(2).addProperty('ADBE Vector Group');
+        function addMerge(targetGroup, bool) {
+            if (bool < 0)
+                return;
+            var cont = getContents(targetGroup);
+            if (cont) {
+                var merge = cont.addProperty('ADBE Vector Filter - Merge');
+                if (merge)
+                    merge.property('ADBE Vector Merge Type').setValue(bool + 2);
             }
-            if (subGroup) {
-                subGroup('ADBE Vector Transform Group')('ADBE Vector Rotation').setValue(shape.rotation);
-                subGroup('ADBE Vector Transform Group')('ADBE Vector Scale').setValue(shape.flip);
+        }
+        function needsSubGroup(parentGroup, shape) {
+            if (shape.rotation != 0 || (shape.flip[0] != 100 || shape.flip[1] != 100)) {
+                var parentContents = getContents(parentGroup);
+                var subGroup = parentContents.addProperty('ADBE Vector Group');
+                var tr = subGroup.property('ADBE Vector Transform Group');
+                tr.property('ADBE Vector Rotation').setValue(shape.rotation);
+                tr.property('ADBE Vector Scale').setValue(shape.flip);
                 return subGroup;
             }
-            return group;
+            return parentGroup;
+        }
+        function addFillToGroup(targetGroup, fillArray) {
+            if (!fillArray)
+                return;
+            var cont = getContents(targetGroup);
+            if (!cont)
+                return;
+            for (var i = fillArray.length - 1; i >= 0; i--) {
+                var fillData = fillArray[i];
+                var fill;
+                if (fillData.type == 'fill') {
+                    fill = cont.addProperty('ADBE Vector Graphic - Fill');
+                    fill.enabled = fillData.enabled;
+                    fill.property("ADBE Vector Fill Color").setValue(fillData.color);
+                    fill.property("ADBE Vector Fill Opacity").setValue(fillData.opacity);
+                    try {
+                        fill.property("ADBE Vector Blend Mode").setValue(fillData.blendMode);
+                    }
+                    catch (e) { }
+                }
+                else if (fillData.type == 'gradient') {
+                    fill = cont.addProperty('ADBE Vector Graphic - G-Fill');
+                    fill.property("ADBE Vector Fill Opacity").setValue(fillData.opacity);
+                    fill.property('ADBE Vector Grad Type').setValue(fillData.gradType);
+                    fill.property('ADBE Vector Grad Start Pt').setValue(fillData.startPoint);
+                    fill.property('ADBE Vector Grad End Pt').setValue(fillData.endPoint);
+                    ae_deselectProps();
+                    fill.selected = true;
+                    applyGradientFfx('fill', false, fillData);
+                    try {
+                        fill.property("ADBE Vector Blend Mode").setValue(fillData.blendMode);
+                    }
+                    catch (e) { }
+                }
+            }
+        }
+        function addStrokeToGroup(targetGroup, strokeArray) {
+            if (!strokeArray)
+                return;
+            var cont = getContents(targetGroup);
+            if (!cont)
+                return;
+            for (var i = strokeArray.length - 1; i >= 0; i--) {
+                var strokeData = strokeArray[i];
+                var stroke;
+                if (strokeData.type == 'fill') {
+                    stroke = cont.addProperty('ADBE Vector Graphic - Stroke');
+                    stroke.enabled = strokeData.enabled;
+                    stroke.property("ADBE Vector Stroke Color").setValue(strokeData.color);
+                    stroke.property("ADBE Vector Stroke Opacity").setValue(strokeData.opacity);
+                    stroke.property("ADBE Vector Stroke Width").setValue(strokeData.width);
+                    stroke.property("ADBE Vector Stroke Line Cap").setValue(strokeData.cap + 1);
+                    stroke.property("ADBE Vector Stroke Line Join").setValue(strokeData.join + 1);
+                    try {
+                        stroke.property("ADBE Vector Blend Mode").setValue(strokeData.blendMode);
+                    }
+                    catch (e) { }
+                    if (strokeData.strokeDashes && strokeData.strokeDashes.length > 0) {
+                        var dashGroup = stroke.property('ADBE Vector Stroke Dashes');
+                        for (var j = 1; j <= strokeData.strokeDashes.length; j++) {
+                            var countRound = Math.round(j / 2);
+                            try {
+                                if ((j - 1) % 2 == 0) {
+                                    dashGroup.addProperty('ADBE Vector Stroke Dash ' + countRound).setValue(strokeData.strokeDashes[j - 1]);
+                                }
+                                else {
+                                    dashGroup.addProperty('ADBE Vector Stroke Gap ' + countRound).setValue(strokeData.strokeDashes[j - 1]);
+                                }
+                            }
+                            catch (e) { }
+                        }
+                    }
+                }
+                else if (strokeData.type == 'gradient') {
+                    stroke = cont.addProperty('ADBE Vector Graphic - G-Stroke');
+                    stroke.property("ADBE Vector Stroke Opacity").setValue(strokeData.opacity);
+                    stroke.property("ADBE Vector Stroke Width").setValue(strokeData.width);
+                    stroke.property("ADBE Vector Stroke Line Cap").setValue(strokeData.cap + 1);
+                    stroke.property("ADBE Vector Stroke Line Join").setValue(strokeData.join + 1);
+                    stroke.property('ADBE Vector Grad Type').setValue(strokeData.gradType);
+                    stroke.property('ADBE Vector Grad Start Pt').setValue(strokeData.startPoint);
+                    stroke.property('ADBE Vector Grad End Pt').setValue(strokeData.endPoint);
+                    ae_deselectProps();
+                    stroke.selected = true;
+                    applyGradientFfx('stroke', false, strokeData);
+                    try {
+                        stroke.property("ADBE Vector Blend Mode").setValue(strokeData.blendMode);
+                    }
+                    catch (e) { }
+                }
+            }
         }
     }
     function aeSymbol(layer, opt_parent) {
@@ -955,55 +1087,9 @@ var AEUX = (function () {
             for (var i = layer.stroke.length - 1; i >= 0; i--) {
                 var sData = layer.stroke[i];
                 if (sData.isCustom === true && sData.sides) {
-                    try {
-                        var createSide = function (sideName, ptStart, ptEnd, weight, s) {
-                            if (weight <= 0)
-                                return;
-                            var x1 = ptStart[0];
-                            var y1 = ptStart[1];
-                            var x2 = ptEnd[0];
-                            var y2 = ptEnd[1];
-                            if (sideName === "Top") {
-                                x1 -= (s.left / 2);
-                                x2 += (s.right / 2);
-                            }
-                            else if (sideName === "Bottom") {
-                                x1 += (s.right / 2);
-                                x2 -= (s.left / 2);
-                            }
-                            else if (sideName === "Left") {
-                                y1 += (s.top / 2);
-                                y2 -= (s.bottom / 2);
-                            }
-                            else if (sideName === "Right") {
-                                y1 -= (s.top / 2);
-                                y2 += (s.bottom / 2);
-                            }
-                            var sideGroup = targetContents.addProperty("ADBE Vector Group");
-                            sideGroup.name = "Stroke " + sideName;
-                            var sideGroupContents = sideGroup.property("Contents");
-                            var pathProp = sideGroupContents.addProperty("ADBE Vector Shape - Group");
-                            var shape = new Shape();
-                            shape.vertices = [[x1, y1], [x2, y2]];
-                            shape.closed = false;
-                            pathProp.property("Path").setValue(shape);
-                            var strokeProp = sideGroupContents.addProperty("ADBE Vector Graphic - Stroke");
-                            strokeProp.property("Color").setValue(sData.color);
-                            strokeProp.property("Opacity").setValue(sData.opacity);
-                            strokeProp.property("Stroke Width").setValue(weight);
-                            strokeProp.property("Line Cap").setValue(1);
-                            strokeProp.property("Line Join").setValue(1);
-                        };
-                        var sides = sData.sides;
-                        createSide("Top", [-hw, -hh], [hw, -hh], sides.top, sides);
-                        createSide("Right", [hw, -hh], [hw, hh], sides.right, sides);
-                        createSide("Bottom", [hw, hh], [-hw, hh], sides.bottom, sides);
-                        createSide("Left", [-hw, hh], [-hw, -hh], sides.left, sides);
-                        continue;
-                    }
-                    catch (e) {
-                        alert("AEUX Stroke Error: " + e.toString());
-                    }
+                    var maxWeight = Math.max(sData.sides.top || 0, sData.sides.right || 0, sData.sides.bottom || 0, sData.sides.left || 0);
+                    sData.width = maxWeight;
+                    sData.isCustom = false;
                 }
                 var stroke;
                 if (sData.type == 'fill') {

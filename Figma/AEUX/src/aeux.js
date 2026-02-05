@@ -4,19 +4,20 @@ import * as triclops from './triclops.js'
 
 var versionNumber = 0.81;
 var frameData, layers, hasArtboard, layerCount, layerData, boolOffset, rasterizeList, frameSize;
-export function convert (data) {
+export function convert(data) {
     hasArtboard = false;
     layerCount = 0;
-    boolOffset = null
-    rasterizeList = []
-    // var vm.imageIdList = [];
-
-    // console.log('tester', data);
+    boolOffset = null;
+    rasterizeList = [];
+    
     var layerData = filterTypes(data);
-    layerData[0].layerCount = layerCount;
-    layerData[0].rasterizeList = rasterizeList;
-// console.log('layerData', layerData);
-
+    
+    // Safety check if layerData is empty
+    if (layerData && layerData.length > 0) {
+        layerData[0].layerCount = layerCount;
+        layerData[0].rasterizeList = rasterizeList;
+    }
+    
     return layerData;
 }
 
@@ -28,20 +29,15 @@ function filterTypes(figmaData, opt_parentFrame, boolType) {
     
 
     if (!hasArtboard) {
-        // console.log('artboard', storeArtboard(figmaData));
-        // console.log('missing artboard', figmaData);
         aeuxData.push(storeArtboard(figmaData));
-        frameData = figmaData;      // store the whole frame data
+        frameData = figmaData;
     }
-    layers = figmaData.children;
-    // console.log(figmaData);
+
+    layers = figmaData.children || [];
 
     layers.forEach(layer => {
-        // console.log(layer.type);
         if (!opt_parentFrame) { boolOffset = null }
-
         if (layer.visible === false) { return; }         // skip layer if hidden
-        // console.log(layer.name, layer.type);
 
         // detect * in layer names
         if (layer.name && layer.name.charAt(0) == '*') {        // skip frames with *
@@ -59,41 +55,33 @@ function filterTypes(figmaData, opt_parentFrame, boolType) {
         // if (layer.fillGeometry && layer.fillGeometry.length > 1) { layer.type = "BOOLEAN_OPERATION" }         // overwrite the layer type
 
         if (layer.type == "BOOLEAN_OPERATION") {
-            layer = getBoolean(layer, parentFrame, boolType);
-            if (layer) {        // skip if no layers in the compound
-                aeuxData.push(layer);
-            } else { return; }
+            let boolLayer = getBoolean(layer, parentFrame, boolType);
+            if (boolLayer) aeuxData.push(boolLayer);
         }
-        if (layer.type == "RECTANGLE" ||
-            layer.type == "ELLIPSE" ||
-            layer.type == "VECTOR" ||
-            layer.type == "LINE" ||
-            layer.type == "STAR" ||
-            layer.type == "POLYGON") {
-              aeuxData.push(getShape(layer, parentFrame, boolType));
+
+        if (["RECTANGLE", "ELLIPSE", "VECTOR", "LINE", "STAR", "POLYGON"].includes(layer.type)) {
+            aeuxData.push(getShape(layer, parentFrame, boolType));
             layerCount++;
         }
-        if (layer.type == "INSTANCE" || layer.type == "COMPONENT" || layer.type == "FRAME" || layer.type == "AUTOLAYOUT") {    // instances and master symbols
-            // console.log('SYMBOL');
-            if (layer.rasterize) {     // 
-                let rasterizedLayer = getImageFill(layer, parentFrame)
-                rasterizedLayer.name = layer.name.replace(/^\*\s/, '').replace(/^\*/, '') // remove astrix
-                aeuxData.push(rasterizedLayer)
-                rasterizeList.push(layer.id)
-                return
+
+        if (["INSTANCE", "COMPONENT", "FRAME", "AUTOLAYOUT"].includes(layer.type)) {
+            if (layer.rasterize) {     
+                let rasterizedLayer = getImageFill(layer, parentFrame);
+                rasterizedLayer.name = layer.name.replace(/^\*\s/, '').replace(/^\*/, '');
+                aeuxData.push(rasterizedLayer);
+                rasterizeList.push(layer.id);
+                return;
             }
-            
             if (layer.type == "FRAME" && parentFrame) { layer.type = "AUTOLAYOUT" }
             aeuxData.push(getComponent(layer, parentFrame));
             layerCount++;
         }
+
         if (layer.type == "TEXT") {
             aeuxData.push(getText(layer, parentFrame));
             layerCount++;
         }
     });
-    console.log('aeuxData done', aeuxData);
-    
   return aeuxData;
 }
 
@@ -102,88 +90,60 @@ function getShape(layer, parentFrame, boolType) {
     var layerType = getShapeType(layer);
     var frame = getFrame(layer, parentFrame);
 
-    // adjust if a compound shape
     if (boolType) {
         frame.x = parentFrame.width/2 + (frame.x - layer.width) - (parentFrame.width - layer.width)/2; 
         frame.y = parentFrame.height/2 + (frame.y - layer.height) - (parentFrame.height - layer.height)/2;
     }
-    // if (boolType) {
-    //     frame.x = parentFrame.width/2 + (frame.x - layer.width) - (parentFrame.width - layer.width)/2; 
-    //     frame.y = parentFrame.height/2 + (frame.y - layer.height) - (parentFrame.height - layer.height)/2;
-    // }
+
+    // 1. Analyze Geometry
     var path = getPath(layer, frame);
-    // console.log('path', path);
 
+    // 2. Handle Complex Paths (Multipath / Compound)
     if (path == 'multiPath') {
-        console.log('multipath');
+    // Create a compound shape container
+    var compound = getBoolean(layer, parentFrame, null, true);
+    
+    // CRITICAL FIX: ...
+    compound.fill = null;
+    compound.stroke = null;
+    
+    return compound;
+}
 
-        // boolOffset = null
-        return getBoolean(layer, parentFrame, null, true);
-    }
-    // console.log(layer.relativeTransform[0][0]);
-
-	var layerData =  {
+    var layerData = {
         type: layerType,
-		name: layer.name,
-		id: layer.id,
-		frame: frame,
+        name: layer.name,
+        id: layer.id,
+        frame: frame,
         fill: getFills(layer, parentFrame),
         stroke: getStrokes(layer),
         isVisible: (layer.visible !== false),
-		path: path,
-		roundness: Math.round(layer.cornerRadius) || 0,
-		// roundness: (layer.type == 'RECTANGLE') ? Math.round(layer.cornerRadius) || 0 : 0,
-		opacity: layer.opacity*100 || 100,
+        path: path,
+        roundness: Math.round(layer.cornerRadius) || 0,
+        opacity: layer.opacity*100 || 100,
         rotation: getRotation(layer),
-		flip: (boolType) ? [100, 100] : getFlipMultiplier(layer),
+        flip: (boolType) ? [100, 100] : getFlipMultiplier(layer),
         blendMode: getLayerBlending(layer.blendMode),
         booleanOperation: boolType || getBoolType(layer),
         isMask: layer.isMask,
         shouldBreakMaskChain: layer.isMask,
-        // for polygons and stars
         pointCount: layer.pointCount || null,     
-        isStar: (layer.type == 'STAR') ? true : false,
+        isStar: (layer.type == 'STAR'),
         outerRad: Math.max(frame.width, frame.height) / 2,
         innerRad: layer.innerRadius || null,
         polyScale: getPolyscale(layer),
     };
-  
 
-    /// if fill is an image group it and add a solid as a mask
-    if (layerData.fill != null && layerData.fill.type == 'Image') {
-        // layerData = groupData
-        layerData = layerData.fill
-        layerData.rotation = 0
-
-        // console.log(layerData.frame);
-        // if layer is off the left edge
-        // if (layer.relativeTransform[0][2] < 0) {
-        //     layerData.frame.width += layer.relativeTransform[0][2]
-        //     layerData.frame.x = layerData.frame.width / 2
-        // }
-        // // if layer is off the top edge
-        // if (layer.relativeTransform[1][2] < 0) {
-        //     layerData.frame.height -= Math.abs(layer.relativeTransform[1][2])
-        //     layerData.frame.y = layerData.frame.height / 2
-        // }
-        // // if layer is off the right edge
-        // if (layer.relativeTransform[0][2] + layerData.frame.width > frameData.width) {
-        //     layerData.frame.width = frameData.width - layer.relativeTransform[0][2]
-        //     layerData.frame.x = frameData.width - layerData.frame.width / 2
-        // }
-        // // if layer is off the bottom edge
-        // if (layer.relativeTransform[1][2] + layerData.frame.height > frameData.height) {
-        //     layerData.frame.height = frameData.height - layer.relativeTransform[1][2]
-        //     layerData.frame.y = frameData.height - layerData.frame.height / 2
-        // }
-        // console.log(layerData.frame);
+    // Image fills handling...
+    if (layerData.fill != null && layerData.fill.length > 0 && layerData.fill[0].type == 'Image') {
+        layerData = layerData.fill[0]; // Assuming image fill replaces shape
+        layerData.rotation = 0;
     }
 
-  getEffects(layer, layerData);
-
-//   console.log(layerData);
-  return layerData;																// output a string of the collected data
+    getEffects(layer, layerData);
+    return layerData;
 }
+
 //// get layer data: TEXT
 function getText(layer, parentFrame) {
     var frame = {};
@@ -468,113 +428,98 @@ function getComponent(layer, parentFrame) {
 function getBoolean(layer, parentFrame, boolType, isMultipath) {
     var frame = getFrame(layer, parentFrame);
     var adjFrame = {x: frame.x, y: frame.y, width: frame.width, height: frame.height};
-    // console.log('boolType!!!', boolType);
-    // console.log('parentFrame!!!', parentFrame);
+
     if (boolType != null) {
-        // console.log('adjust things');
-        adjFrame.x =  frame.width/2
-        adjFrame.y =  frame.height/2
-    } else {
-
+        adjFrame.x = frame.width/2;
+        adjFrame.y = frame.height/2;
     }
-    console.log('getBoolean');
     
-    var boolType = boolType || getBoolType(layer);
-    
-	var layerData =  {
+    var operation = boolType || getBoolType(layer);
+
+    // Pre-calculate styles to pass down to children if needed
+    var computedFills = getFills(layer, parentFrame);
+    var computedStrokes = getStrokes(layer);
+
+    var layerData = {
         type: 'CompoundShape',
-		name: layer.name,
-		id: layer.id,
+        name: layer.name,
+        id: layer.id,
         frame: frame,
-        fill: getFills(layer, parentFrame),
-        stroke: getStrokes(layer),
+        fill: computedFills,
+        stroke: computedStrokes,
         isVisible: (layer.visible !== false),
-		opacity: Math.round(layer.opacity*100) || 100,
-		rotation: getRotation(layer),
-		blendMode: getLayerBlending(layer.blendMode),
+        opacity: Math.round(layer.opacity*100) || 100,
+        rotation: getRotation(layer),
+        blendMode: getLayerBlending(layer.blendMode),
         flip: [100,100],
-        booleanOperation: boolType,
+        booleanOperation: operation,
         isMask: layer.isMask,
-        // hasClippingMask: false,
-        // shouldBreakMaskChain: true,
-        // layers: filterTypes(layer, frame, boolType),
     };
-    // console.log(layer.name, layerData.booleanOperation);
     
-
     if (isMultipath) {
-        console.log('get that multipath');        
-        try {
-            layerData.layers = getCompoundPaths(layer.vectorPaths[0].data, layer);
-        } catch (error) {
-            layerData.layers = []
-            // xxx
-        }
-        
+        // Here we build the children layers from the parsed paths
+        // and assign them the correct fill/stroke derived above
+        layerData.layers = getCompoundPaths(layer, computedFills, computedStrokes);
     } else {        
-        console.log('run getCompoundShapes' )
-        // alert(frame.y + ' : ' + adjFrame.y)
-        // layerData.layers = filterTypes(layer, { x: frame.x, y: frame.y - 40, width: frame.width, height: frame.height}, null);
         layerData.layers = filterTypes(layer, adjFrame, null);
-
-        // realign sub layers
-        layerData.layers.forEach(layer => {
-            boolOffset = (!boolOffset) ? { x: layerData.layers[0].frame.x, y: layerData.layers[0].frame.y } : boolOffset
-            if (!layer.layers) {    // lowest level nested shape
-                layer.frame.x -= layer.frame.width/2
-                layer.frame.y -= layer.frame.height/2
-            } else {    // calc offset
-                // offset = { x: 0, y: 0 }
-                // console.log('OFFSET apply', layer.name, boolOffset);
-                layer.frame.x -= boolOffset.x
-                layer.frame.y -= boolOffset.y
-            }
-            layer.booleanOperation = boolType
-        })
+        
+        // Realign sub layers for standard boolean groups
+        if (layerData.layers) {
+            layerData.layers.forEach(subLayer => {
+                boolOffset = (!boolOffset) ? { x: layerData.layers[0].frame.x, y: layerData.layers[0].frame.y } : boolOffset;
+                if (!subLayer.layers) {
+                    subLayer.frame.x -= subLayer.frame.width/2;
+                    subLayer.frame.y -= subLayer.frame.height/2;
+                } else {
+                    subLayer.frame.x -= boolOffset.x;
+                    subLayer.frame.y -= boolOffset.y;
+                }
+                subLayer.booleanOperation = operation;
+            });
+        }
     }
     getEffects(layer, layerData);
-    // console.log(layerData)
-  return layerData;
+    return layerData;
 }
-function getCompoundPaths(paths, layer) {
-    console.log(paths);
-    
+function getCompoundPaths(layer, computedFills, computedStrokes) {
     var layerList = [];
-    // console.log(layerList)
-    // var pathList = paths.match(/M-?\d*(\.\d+)?/);
-    var pathList = paths.match(/M.*?((?=M)|$)/g);
-    // var pathList = paths.match(/(M|(?<=Z)).*?((?=M)|$)/g);
-    // var pathList = paths.split(/(ZM)/);
-    // console.log(pathList)
-    // console.log('layer.absoluteBoundingBox', layer.absoluteBoundingBox);
 
-    /// loop through all nested shapes
-    for (var i = 0; i < pathList.length; i++) {
-    //     var layer = layers[i];
-    //     // var flip = getFlipMultiplier(layer);
-        layerList.push({
-            type: 'Path',
-            name: layer.name,
-    		id: null,
-    		frame: {
-                width: 100,
-                height: 100,
-                x: 0,
-                y: 0,
-            },
-    //         isVisible: (layer.visible !== false),
-            path: getPath(pathList[i], layer.absoluteBoundingBox, 'multiPath'),
-    //         roundness: Math.round(layer.cornerRadius) || 0,
-            flip: [100,100],
-            rotation: 0,
-            booleanOperation: getBoolType(layer),
-        });
-// console.log(layer.name, layerList);
-    //     console.log(layers[i]);
-    }
-// console.log(layerList)
+    if (layer._aeuxParsedPaths) {
+        var parsed = layer._aeuxParsedPaths;
+        
+        for (var i = 0; i < parsed.length; i++) {
+            var pObj = parsed[i];
+            
+            // Logic: 
+            // If path came from fillGeometry -> give it fill style.
+            // If path came from strokeGeometry -> give it stroke style.
+            var pathFill = (pObj.renderFill) ? computedFills : null;
+            var pathStroke = (pObj.renderStroke) ? computedStrokes : null;
+
+            var pathLayer = {
+                type: 'Path',
+                name: 'Path ' + (i + 1),
+                id: null,
+                frame: { width: 100, height: 100, x: 0, y: 0 },
+                path: pObj,
+                flip: [100, 100],
+                rotation: 0,
+                booleanOperation: getBoolType(layer),
+                opacity: 100,
+                blendMode: getLayerBlending(layer.blendMode),
+                isVisible: true,
+                
+                // Assign specific styles
+                fill: pathFill,
+                stroke: pathStroke
+            };
+
+            layerList.push(pathLayer);
+        }
+    } 
     return layerList;
 }
+
 function getEffects(layer, layerData) {
     // console.log(layer);
     
@@ -1173,325 +1118,219 @@ function getShapeBlending(mode) {
 }
 
 //// get shape data: PATH
-function getPath(layer, bounding, type) {    
-    // console.log('getPath', layer);
+function getPath(layer, bounding) {
+    // 1. Collect Geometry Sources
+    var fillPaths = layer.fillGeometry || [];
+    var strokePaths = layer.strokeGeometry || [];
 
-    // check if rectangle has uniform corner rounding
-    const allEqual = arr => arr.every(v => v === arr[0])
-    if (layer.type == 'STAR' || layer.type == 'POLYGON' || (layer.type == 'RECTANGLE' && !allEqual([layer.topLeftRadius, layer.topRightRadius, layer.bottomLeftRadius, layer.bottomRightRadius])) ) {
-        layer.vectorPaths = layer.fillGeometry
-        layer.type = 'Path'
+    // Fallback for Primitives without vector networks
+    const allEqual = arr => arr.every(v => v === arr[0]);
+    var isPrimitive = (
+        (layer.type == 'RECTANGLE' && allEqual([layer.topLeftRadius, layer.topRightRadius, layer.bottomLeftRadius, layer.bottomRightRadius])) ||
+        layer.type == 'ELLIPSE' || 
+        layer.type == 'LINE'
+    );
+
+    if (isPrimitive && fillPaths.length === 0 && strokePaths.length === 0 && !layer.vectorPaths) {
+        if (layer.type == 'RECTANGLE') return { points: [[0, 0], [bounding.width, 0], [bounding.width, bounding.height], [0, bounding.height]], inTangents: [], outTangents: [], closed: true };
+        if (layer.type == 'ELLIPSE') {
+            var k = 0.5522847498; var hw = bounding.width / 2; var hh = bounding.height / 2; var ox = hw * k; var oy = hh * k;
+            return { points: [[hw, 0], [bounding.width, hh], [hw, bounding.height], [0, hh]], inTangents: [[-ox, 0], [0, -oy], [ox, 0], [0, oy]], outTangents: [[ox, 0], [0, oy], [-ox, 0], [0, -oy]], closed: true };
+        }
+        if (layer.type == 'LINE') return { points: [[0, 0], [bounding.width, bounding.height]], inTangents: [], outTangents: [], closed: false };
     }
-    
-    var pathStr, pathObj;
-    if (layer.vectorPaths && layer.vectorPaths.length < 2) {       // find an individual path
-        pathStr = layer.vectorPaths || layer;
-        pathObj = parseSvg(pathStr[0].data);
-        console.log('pathObj', pathObj);
-    } else if (layer.vectorPaths && layer.vectorPaths.length > 1) {
-        let comboPath = ''
-        layer.vectorPaths.forEach(path => {
-            comboPath += `${path.data} `;
-        })
-        layer.vectorPaths = [{data: comboPath}]
-        return 'multiPath'
-    } else if (type == 'multiPath') {
-        console.log('multiPath', layer);
-        
-        pathObj = parseSvg(layer);
-    } else {
-        // get the fill path or the stroke path if no fill
-        try {
-            // console.log(layer);
-            // convert path to rectangle for corner rounding
-            if (layer.type == 'RECTANGLE') {
-              // console.log('get that rectangle');
-              
-              // console.log(layer);
-              
-                return {
-                    points: [
-                    [0, 0],
-                    [bounding.width, 0],
-                    [bounding.width, bounding.height],
-                    [0, bounding.height],
-                    ],
-                    inTangents: [],
-                    outTangents: [],
-                    closed: true
-                }
-            } else if (layer.type == 'ELLIPSE') {
-                // console.log('get that ellipse');
-                
-                return {
-                    points: [
-                        [bounding.width/2, 0],
-                        [bounding.width, bounding.height/2],
-                        [bounding.width/2, bounding.height],
-                        [0, bounding.height/2],
-                    ],
-                    inTangents: [
-                        [-bounding.width/3.56, 0],
-                        [0, -bounding.height/3.56],
-                        [bounding.width/3.56, 0],
-                        [0, bounding.height/3.56],
-                    ],
-                    outTangents: [
-                        [bounding.width/3.56, 0],
-                        [0, bounding.height/3.56],
-                        [-bounding.width/3.56, 0],
-                        [0, -bounding.height/3.56],
-                    ],
-                    closed: true
-                }
-            } else if (layer.type == 'LINE') {
-                // console.log('get that ellipse');
-                
-                return {
-                    points: [
-                        [0, 0],
-                        [bounding.width, bounding.height],
-                    ],
-                    inTangents: [],
-                    outTangents: [],
-                    closed: false
-                }
+
+    // 2. Combine and Tag Geometry
+    var combinedData = [];
+    var seenPaths = new Set(); // To avoid duplicates if a path is both filled and stroked
+
+    // Helper to add paths
+    const addPaths = (sourcePaths, isFill, isStroke) => {
+        for (var i = 0; i < sourcePaths.length; i++) {
+            var d = sourcePaths[i].data;
+            if (!d) continue;
+            
+            // Simple hash for dedup logic
+            var key = d.substring(0, 100) + d.length; 
+            
+            var existing = combinedData.find(item => item.key === key);
+            
+            if (existing) {
+                // If it exists, merge flags
+                if (isFill) existing.isFill = true;
+                if (isStroke) existing.isStroke = true;
+            } else {
+                combinedData.push({
+                    data: d,
+                    key: key,
+                    isFill: isFill,
+                    isStroke: isStroke
+                });
             }
-            
-        } catch (e) {
-            console.log(e);
-            
-            // layer.type = 'RECTANGLE';
-            console.log('catch multipath')
-            // console.log(layer);
-            
-            return 'multiPath';
+        }
+    };
+
+    addPaths(fillPaths, true, true);
+
+    // Fallback to old vectorPaths if new API failed
+    if (combinedData.length === 0 && layer.vectorPaths) {
+        var vPaths = Array.isArray(layer.vectorPaths) ? layer.vectorPaths : [layer.vectorPaths];
+        // Assume old behavior: applies to both
+        for (var i = 0; i < vPaths.length; i++) {
+            combinedData.push({ data: vPaths[i].data || vPaths[i], isFill: true, isStroke: true });
         }
     }
 
-    // convert path to rectangle for corner rounding
-    // if (layer.type == 'RECTANGLE') {
-    //     console.log('get that rectangle');
+    // 3. Parse All Paths
+    var parsedPaths = [];
+    for (var i = 0; i < combinedData.length; i++) {
+        // parseSvg now returns an ARRAY of paths (handling M commands inside string)
+        var svgResult = parseSvg(combinedData[i].data, true);
         
-    //     pathObj = {
-    //         points: [
-    //             [0, 0],
-    //             [bounding.width, 0],
-    //             [bounding.width, bounding.height],
-    //             [0, bounding.height],
-    //         ],
-    //         inTangents: [],
-    //         outTangents: [],
-    //         closed: true
-    //     }
-    // }
-    // console.log(pathObj)
-    return pathObj;
+        for (var p = 0; p < svgResult.length; p++) {
+            // Propagate rendering flags
+            svgResult[p].renderFill = combinedData[i].isFill;
+            svgResult[p].renderStroke = combinedData[i].isStroke;
+            parsedPaths.push(svgResult[p]);
+        }
+    }
+
+    // 4. Return Result
+    if (parsedPaths.length > 1) {
+        layer._aeuxParsedPaths = parsedPaths; // Store for getCompoundPaths
+        return 'multiPath';
+    }
+
+    return parsedPaths[0] || { points: [], inTangents: [], outTangents: [], closed: false };
 }
 
 function parseSvg(str, transformed) {
-    // console.log(str)
-    var pathObj = {
-        points: [],
-        inTangents: [],
-        outTangents: [],
-        closed: false,
-    };
-    var shouldClosePath = false;
+    var paths = [];
+    var currentPath = null;
+    
+    // Robust Tokenizer: captures single letters OR numbers (float, scientific)
+    var tokens = str.match(/([a-zA-Z])|([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g);
+    if (!tokens) return [{ points: [], inTangents: [], outTangents: [], closed: false }];
 
-    // used as a negative offset when pulling coords from SVG
-    var minX = 9999999999999;
-    var minY = 9999999999999;
+    var i = 0;
+    var minX = Infinity, minY = Infinity;
+    var currentPoint = [0, 0];
+    var lastControlPoint = null;
 
-    // add line breaks between SVG commands    
-    var path = str.replace(/\s*([mlvhqczMLVHQCZ])\s*/g,"\n$1 ")
-                .replace(/,/g," ")
-                // .replace(/-/g," -")
-                .replace(/ +/g," ");
-    var strings = path.split("\n");
-    // console.log(path);
-    // shift all the points so the second point is first then reverse
-    strings.splice(strings.length-1, 0, strings.splice(0, 1)[0]);
-    strings.splice(strings.length-1, 0, strings.splice(0, 1)[0]);
-    strings.splice(strings.length-1, 0, strings.splice(0, 1)[0]);
-    strings.reverse();
-    // console.log(strings);
+    while (i < tokens.length) {
+        var token = tokens[i];
+        
+        // Is it a command?
+        if (/^[a-zA-Z]$/.test(token)) {
+            var cmd = token;
+            var isRelative = (cmd === cmd.toLowerCase());
+            var cmdUpper = cmd.toUpperCase();
+            i++;
 
-
-    // check for closed
-    var tempPointList = [];
-    var zCount = 0;
-    for (var i = 0; i < strings.length; i++) {
-        var string = strings[i].trim();     // remove white space
-        // if (string < 1) { continue; }   // skip if empty
-
-        var op = string.substring(0,1);
-        var terms = string.substring(2).trim().split(" ");
-
-        // start or straight line
-        if (op == 'L' ||  op == 'M') {
-            var x = parseFloat(terms[0]);
-            var y = parseFloat(terms[1]);
-            tempPointList.push([x, y]);
-            // if (x == tempPointList[tempPointList.length-1][0] && y == tempPointList[tempPointList.length-1][1]) {
-            //     shouldClosePath = true;
-            //     break;
-            // }
-        }
-        // curve
-        if (op == 'C') {
-            x = parseFloat(terms[4]);
-            y = parseFloat(terms[5]);
-            tempPointList.push([x, y]);
-        }
-    }
-    // store all points/tangents
-    for (var i = 0; i < strings.length; i++) {
-        string = strings[i].trim();     // remove white space
-
-        if (string < 1) { continue; }   // skip if empty
-
-
-        op = string.substring(0,1);
-        terms = string.substring(2).trim().split(" ");
-
-        // check closing
-        if (op == 'Z') {
-            // console.log('close');
-            shouldClosePath = true;
-            // zCount++;
-        }
-
-        // start or straight line
-        if (!pathObj.closed && op == 'M') {
-            zCount++;
-
-            // calc min x,y for offset
-            minX = Math.min(minX, terms[0])
-            minY = Math.min(minY, terms[1])
-
-            // add coords to pathObj
-            pathObj.points.push( [parseFloat(terms[0]), parseFloat(terms[1])] );
-            pathObj.inTangents.push( [0,0] );
-            pathObj.outTangents.push( [0,0] );
-        }
-        // start or straight line
-        if (op == 'L') {
-            // calc min x,y for offset
-            minX = Math.min(minX, terms[0])
-            minY = Math.min(minY, terms[1])
-
-            // add coords to pathObj
-            // pathObj.points.push(terms);
-            pathObj.points.push( [parseFloat(terms[0]), parseFloat(terms[1])] );
-            pathObj.inTangents.push( [0,0] );
-            pathObj.outTangents.push( [0,0] );
-        }
-        // // curve
-        if (op == 'C') {
-            // calc min x,y for offset
-            minX = Math.min(minX, terms[4])
-            minY = Math.min(minY, terms[5])
-
-            // add coords to pathObj
-            pathObj.points.push( [parseFloat(terms[4]), parseFloat(terms[5]) ] );
-            pathObj.inTangents.push( [ terms[0], terms[1] ] );
-
-            var outTangent = [terms[2]-terms[4], terms[3]-terms[5]];
-            pathObj.outTangents.push( outTangent );
-            // console.log(pathObj);
-        }
-
-        // horizontal/vertical line
-        if (op == 'H') {
-            var len = parseFloat(terms);
-            try {
-                lastTerms = strings[i+1].substring(2).trim().split(" ");
-                pathObj.points.push([len, lastTerms[1] ]);
-            } catch (e) {
-                lastTerms = strings[0].substring(2).trim().split(" ");
-                pathObj.points.push([len, lastTerms[1] ]);
+            // M - MoveTo (Start new path)
+            if (cmdUpper === 'M') {
+                if (currentPath && currentPath.points.length > 0) {
+                    paths.push(currentPath);
+                }
+                currentPath = { points: [], inTangents: [], outTangents: [], closed: false };
+                
+                if (i + 1 < tokens.length) {
+                    var x = parseFloat(tokens[i]), y = parseFloat(tokens[i+1]); i += 2;
+                    if (isRelative) { x += currentPoint[0]; y += currentPoint[1]; }
+                    
+                    minX = Math.min(minX, x); minY = Math.min(minY, y);
+                    currentPath.points.push([x, y]);
+                    currentPath.inTangents.push([0, 0]); currentPath.outTangents.push([0, 0]);
+                    currentPoint = [x, y]; lastControlPoint = null;
+                }
             }
-            pathObj.inTangents.push( [0,0] );
-            pathObj.outTangents.push( [0,0] );
-        }
-        if (op == 'V') {
-            var len = parseFloat(terms);
-            try {
-                lastTerms = strings[i+1].substring(2).trim().split(" ");
-                pathObj.points.push([lastTerms[0], len]);
-            } catch (e) {
-                lastTerms = strings[0].substring(2).trim().split(" ");
-                pathObj.points.push([lastTerms[0], len]);
+            // L - LineTo
+            else if (cmdUpper === 'L') {
+                if (i + 1 < tokens.length) {
+                    var x = parseFloat(tokens[i]), y = parseFloat(tokens[i+1]); i += 2;
+                    if (isRelative) { x += currentPoint[0]; y += currentPoint[1]; }
+                    minX = Math.min(minX, x); minY = Math.min(minY, y);
+                    currentPath.points.push([x, y]);
+                    currentPath.inTangents.push([0, 0]); currentPath.outTangents.push([0, 0]);
+                    currentPoint = [x, y]; lastControlPoint = null;
+                }
             }
-            pathObj.inTangents.push( [0,0] );
-            pathObj.outTangents.push( [0,0] );
-        }
-        // console.log(op, terms);
-    }
-    // console.log(pathObj);
-    // shift inTangents list
-    pathObj.inTangents.splice(0, 0, pathObj.inTangents.splice(pathObj.inTangents.length-1, 1)[0]);
-
-    for (var j = 0; j < pathObj.points.length; j++) {
-        // offset points by min x,y  - skip if multiPath and regular
-        // console.log(type);
-        if (transformed) {
-            // console.log('skip offset');
-            pathObj.points[j][0] -= minX;
-            pathObj.points[j][1] -= minY;
-        }
-
-
-        var point = pathObj.points[j];
-        var inTangent = pathObj.inTangents[j];
-
-        // if inTangents is not zero
-        if (inTangent[0] != 0 || inTangent[1] != 0) {
-            pathObj.inTangents[j] = [ inTangent[0]-point[0], inTangent[1]-point[1] ];
-            // console.log('minus', [point[0], point[1]]);
-        }
-
-
-    }
-
-    // rotate the points and tangents back to their original points when not closing the path
-    if (!shouldClosePath) {
-        for (var i = 0; i < pathObj.points.length-2; i++) {
-            pathObj.points.unshift(pathObj.points.pop())
-            pathObj.inTangents.unshift(pathObj.inTangents.pop())
-            pathObj.outTangents.unshift(pathObj.outTangents.pop())
-        }
-    }
-    // remove duplicate points when closing the path
-    if (shouldClosePath) {
-        pathObj.closed = true;
-
-        // if the first coord matches the last
-        if (pathObj.points[0][0] == pathObj.points[pathObj.points.length-1][0] &&
-            pathObj.points[0][1] == pathObj.points[pathObj.points.length-1][1]) {
-            // console.log('remove');
-            pathObj.points.splice(k, 1)
-            pathObj.inTangents.splice(k, 1)
-            pathObj.outTangents.splice(k-1, 1)
-
-        }
-
-        // loop through coords and if the current coord matches the previous coord
-        for (var k = 0; k < pathObj.points.length; k++) {
-            if (k > 0 && pathObj.points[k][0] == pathObj.points[k-1][0] && pathObj.points[k][1] == pathObj.points[k-1][1]) {
-                // console.log('remove', k);
-                pathObj.points.splice(k, 1)
-                pathObj.inTangents.splice(k, 1)
-                pathObj.outTangents.splice(k-1, 1)
-
+            // C - Cubic Bezier
+            else if (cmdUpper === 'C') {
+                if (i + 5 < tokens.length) {
+                    var cp1x = parseFloat(tokens[i]), cp1y = parseFloat(tokens[i+1]);
+                    var cp2x = parseFloat(tokens[i+2]), cp2y = parseFloat(tokens[i+3]);
+                    var endX = parseFloat(tokens[i+4]), endY = parseFloat(tokens[i+5]);
+                    i += 6;
+                    
+                    if (isRelative) {
+                        cp1x += currentPoint[0]; cp1y += currentPoint[1];
+                        cp2x += currentPoint[0]; cp2y += currentPoint[1];
+                        endX += currentPoint[0]; endY += currentPoint[1];
+                    }
+                    minX = Math.min(minX, endX); minY = Math.min(minY, endY);
+                    
+                    // AE Tangents are relative to vertex
+                    var lastIdx = currentPath.points.length - 1;
+                    if (lastIdx >= 0) {
+                        var prev = currentPath.points[lastIdx];
+                        currentPath.outTangents[lastIdx] = [cp1x - prev[0], cp1y - prev[1]];
+                    }
+                    currentPath.points.push([endX, endY]);
+                    currentPath.inTangents.push([cp2x - endX, cp2y - endY]);
+                    currentPath.outTangents.push([0, 0]);
+                    currentPoint = [endX, endY]; lastControlPoint = [cp2x, cp2y];
+                }
             }
-        }
+            // Z - Close
+            else if (cmdUpper === 'Z') {
+                currentPath.closed = true;
+                // Merge first and last if they are same
+                if (currentPath.points.length > 1) {
+                    var first = currentPath.points[0];
+                    var last = currentPath.points[currentPath.points.length - 1];
+                    if (Math.abs(last[0]-first[0]) < 0.001 && Math.abs(last[1]-first[1]) < 0.001) {
+                        currentPath.inTangents[0] = currentPath.inTangents.pop();
+                        currentPath.points.pop(); currentPath.outTangents.pop();
+                    }
+                }
+                currentPoint = currentPath.points[0]; lastControlPoint = null;
+            }
+            // Simple support for H and V just in case
+            else if (cmdUpper === 'H') {
+                var x = parseFloat(tokens[i]); i++;
+                if (isRelative) x += currentPoint[0];
+                var y = currentPoint[1];
+                minX = Math.min(minX, x);
+                currentPath.points.push([x, y]);
+                currentPath.inTangents.push([0,0]); currentPath.outTangents.push([0,0]);
+                currentPoint = [x, y];
+            }
+            else if (cmdUpper === 'V') {
+                var y = parseFloat(tokens[i]); i++;
+                if (isRelative) y += currentPoint[1];
+                var x = currentPoint[0];
+                minY = Math.min(minY, y);
+                currentPath.points.push([x, y]);
+                currentPath.inTangents.push([0,0]); currentPath.outTangents.push([0,0]);
+                currentPoint = [x, y];
+            }
+        } else { i++; } // Skip unknown
     }
 
-    // console.log('zCount', zCount);
-    if (zCount > 1) { return 'multiPath'; }
-    return pathObj;
+    if (currentPath && currentPath.points.length > 0) paths.push(currentPath);
+
+    // Apply global offset to zero-out the path in its own frame
+    if (transformed && minX !== Infinity) {
+        paths.forEach(p => {
+            for (var j = 0; j < p.points.length; j++) {
+                p.points[j][0] -= minX;
+                p.points[j][1] -= minY;
+            }
+        });
+    }
+
+    return paths.length > 0 ? paths : [{ points: [], inTangents: [], outTangents: [], closed: false }];
 }
 
 //// 1. Функция расчета Масштаба и Флипа
