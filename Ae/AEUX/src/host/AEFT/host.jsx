@@ -273,7 +273,7 @@ var AEUX = (function () {
             r('ADBE Transform Group')('ADBE Rotate Z').setValue(layer.rotation);
             r('ADBE Transform Group')('ADBE Scale').setValue([layer.flip[0] * compMult, layer.flip[1] * compMult]);
             if (opt_parent !== null) {
-                r.setParentWithJump(opt_parent);
+                r.parent = opt_parent;
                 r.moveAfter(opt_parent);
                 r.enabled = (layer.isVisible && opt_parent.enabled);
             }
@@ -368,7 +368,7 @@ var AEUX = (function () {
             r.collapseTransformation = true;
             r('ADBE Transform Group')('ADBE Position').setValue([layer.frame.x * compMult, layer.frame.y * compMult]);
             if (opt_parent) {
-                r.setParentWithJump(opt_parent);
+                r.parent = opt_parent;
                 r.moveAfter(opt_parent);
             }
             r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
@@ -396,7 +396,7 @@ var AEUX = (function () {
             r.label = labelColor;
             r.shy = true;
             if (opt_parent !== null) {
-                r.setParentWithJump(opt_parent);
+                r.parent = opt_parent;
                 r.moveAfter(opt_parent);
             }
             r('ADBE Transform Group')('ADBE Anchor Point').setValue([(layer.frame.width / 2) * compMult, (layer.frame.height / 2) * compMult]);
@@ -450,7 +450,7 @@ var AEUX = (function () {
             r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
         }
         if (opt_parent !== null) {
-            r.setParentWithJump(opt_parent);
+            r.parent = opt_parent;
             r.moveAfter(opt_parent);
         }
         setMask(r, layer);
@@ -475,7 +475,7 @@ var AEUX = (function () {
         r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
         r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
         if (opt_parent !== null) {
-            r.setParentWithJump(opt_parent);
+            r.parent = opt_parent;
             r.moveAfter(opt_parent);
         }
         setMask(r, layer);
@@ -518,7 +518,7 @@ var AEUX = (function () {
         r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
         r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
         if (opt_parent !== null) {
-            r.setParentWithJump(opt_parent);
+            r.parent = opt_parent;
             r.moveAfter(opt_parent);
         }
         setMask(r, layer);
@@ -563,7 +563,7 @@ var AEUX = (function () {
         r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
         r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
         if (opt_parent !== null) {
-            r.setParentWithJump(opt_parent);
+            r.parent = opt_parent;
             r.moveAfter(opt_parent);
         }
         setMask(r, layer);
@@ -604,7 +604,7 @@ var AEUX = (function () {
         layerTransform.property('ADBE Opacity').setValue(layer.opacity);
         layerTransform.property('ADBE Scale').setValue(layer.flip);
         if (opt_parent !== null) {
-            r.setParentWithJump(opt_parent);
+            r.parent = opt_parent;
             r.moveAfter(opt_parent);
         }
         setMask(r, layer);
@@ -807,7 +807,7 @@ var AEUX = (function () {
         r.name = '\u21BB ' + layer.name;
         r.collapseTransformation = true;
         if (opt_parent !== null) {
-            r.setParentWithJump(opt_parent);
+            r.parent = opt_parent;
             r.moveAfter(opt_parent);
             r.enabled = (layer.isVisible && opt_parent.enabled);
         }
@@ -908,7 +908,7 @@ var AEUX = (function () {
                 r.parent = opt_parent;
             }
             else {
-                r.setParentWithJump(opt_parent);
+                r.parent = opt_parent;
             }
             r.moveAfter(opt_parent);
             r.enabled = (layer.isVisible && opt_parent.enabled);

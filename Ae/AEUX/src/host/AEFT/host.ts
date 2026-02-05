@@ -370,7 +370,7 @@ function aeText(layer, opt_parent) {
     if (opt_parent !== null) {
         // parent layer
         // if (hostApp == 'Sketch') {
-            r.setParentWithJump(opt_parent);
+            r.parent = opt_parent;
         // } else {
         //     r.parent = opt_parent;
         // }
@@ -555,7 +555,7 @@ function aeGroup(layer, opt_parent) {
         r('ADBE Transform Group')('ADBE Position').setValue( [layer.frame.x * compMult, layer.frame.y * compMult] );
 
         if (opt_parent) {
-            r.setParentWithJump(opt_parent);
+            r.parent = opt_parent;
             r.moveAfter(opt_parent);
         }
         
@@ -597,7 +597,7 @@ function aeGroup(layer, opt_parent) {
         if (opt_parent !== null) {
             // set the parent
             // if (hostApp == 'Sketch') {
-                r.setParentWithJump(opt_parent);
+                r.parent = opt_parent;
             // } else {
             //     r.parent = opt_parent;
             // }
@@ -703,7 +703,7 @@ function aeRect(layer, opt_parent) {
     if (opt_parent !== null) {
       // set the parent
       // if (hostApp == 'Sketch') {
-          r.setParentWithJump(opt_parent);
+          r.parent = opt_parent;
       // } else {
       //     r.parent = opt_parent;
       // }
@@ -750,7 +750,7 @@ function aeEllipse(layer, opt_parent) {
     if (opt_parent !== null) {
       // set the parent
       // if (hostApp == 'Sketch') {
-          r.setParentWithJump(opt_parent);
+          r.parent = opt_parent;
       // } else {
       //     r.parent = opt_parent;
       // }
@@ -816,7 +816,7 @@ function aeStar(layer, opt_parent) {
     
     /// if the group layer has a parent
     if (opt_parent !== null) {
-      r.setParentWithJump(opt_parent);
+      r.parent = opt_parent;
       r.moveAfter(opt_parent);
     }
 
@@ -884,10 +884,10 @@ function aePath(layer, opt_parent) {
     if (opt_parent !== null) {
       // set the parent
       // if (hostApp == 'Sketch') {
-          r.setParentWithJump(opt_parent);
+          r.parent = opt_parent;
       // } else {
       //     r.parent = opt_parent;
-      //     // r.setParentWithJump(opt_parent);
+      //     // r.parent = opt_parent;
       // }
       // move the layer after the parent
       r.moveAfter(opt_parent);
@@ -951,7 +951,7 @@ function aeCompound(layer, opt_parent) {
     layerTransform.property('ADBE Scale').setValue(layer.flip);
     
     if (opt_parent !== null) {
-        r.setParentWithJump(opt_parent);
+        r.parent = opt_parent;
         r.moveAfter(opt_parent);
     }
 
@@ -1171,7 +1171,7 @@ function aeSymbol(layer, opt_parent) {
     if (opt_parent !== null) {
         // set the parent
         // if (hostApp == 'Sketch') {
-            r.setParentWithJump(opt_parent);
+            r.parent = opt_parent;
         // } else {
         //     r.parent = opt_parent;
         // }
@@ -1323,7 +1323,7 @@ function aeImage(layer, opt_parent) {
         if (hostApp == 'Sketch') {
             r.parent = opt_parent;
         } else {
-            r.setParentWithJump(opt_parent);
+            r.parent = opt_parent;
         }
         
         // move the layer after the parent
@@ -1510,7 +1510,7 @@ function initShapeLayer(layer, opt_parent) {
     if (opt_parent !== null) {
         // set the parent
         // if (hostApp == 'Sketch') {
-        //     r.setParentWithJump(opt_parent);
+        //     r.parent = opt_parent;
         // } else {
         //     r.parent = opt_parent;
         // }
