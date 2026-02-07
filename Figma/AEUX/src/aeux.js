@@ -151,13 +151,32 @@ function getText(layer, parentFrame) {
 
     var tempFrame = getFrame(layer, parentFrame);
     var lineHeight = getLineHeight(layer);
-    console.log(tempFrame)
-    console.log(lineHeight)
+    
+    // Начальная позиция Y (верх контейнера)
+    var finalY = tempFrame.y;
+
+    // Проверяем, пришло ли точное значение из Figma
+    if (layer._metricTopOffset !== undefined && layer._metricTopOffset !== null) {
+        // Добавляем точный отступ. 
+        // В AE Box Text обычно рисуется от верхней границы контейнера. 
+        // Мы сдвигаем его вниз ровно на столько, сколько было пустоты в Фигме.
+        finalY = tempFrame.y + layer._metricTopOffset;
+        
+        // Маленький хак: иногда AE Box Text всё же имеет свой внутренний отступ (Ascender).
+        // Если текст всё еще чуть ниже чем надо, можно вычесть пару пикселей тут:
+        // finalY = tempFrame.y + layer._metricTopOffset - (layer.fontSize * 0.15);
+    } 
+    else {
+        // ФОЛБЭК: Если старая версия плагина или расчет не прошел, считаем по старой формуле
+        // 0.72 — это усредненная высота букв
+        finalY = tempFrame.y + (lineHeight - layer.fontSize * 0.72) / 2;
+    }
+
     frame = {
         width: layer.width,
         height: layer.height,
         x: tempFrame.x,
-        y: tempFrame.y + lineHeight - layer.fontSize,
+        y: finalY,
     };
     
 	var layerData =  {

@@ -369,39 +369,67 @@ function nodeToObj(nodes) {
             }
         }
         if (node.type === 'TEXT') {
+            // --- 1. Расчет Line Height (оставляем как было) ---
             //@ts-ignore
-            obj._calcLineHeight = null; // Создаем свое поле
+            obj._calcLineHeight = null;
 
             if (node.lineHeight.unit === 'PIXELS') {
                 //@ts-ignore
-
                 obj._calcLineHeight = node.lineHeight.value;
-            }
-            else if (node.lineHeight.unit === 'PERCENT') {
+            } else if (node.lineHeight.unit === 'PERCENT') {
                 //@ts-ignore
-
                 obj._calcLineHeight = node.fontSize * (node.lineHeight.value / 100);
-            }
-            else {
+            } else {
                 // AUTO
-                // Трюк для получения точного значения без async/await:
-                // Если текст в одну строку и стоит Auto Height — высота слоя равна Line Height.
                 const isSingleLine = node.characters.indexOf('\n') === -1;
                 const isAutoHeight = node.textAutoResize === 'HEIGHT' || node.textAutoResize === 'WIDTH_AND_HEIGHT';
-
                 if (isSingleLine && isAutoHeight) {
                     //@ts-ignore
-
                     obj._calcLineHeight = node.height;
                 } else {
-                    // Если строк много или фиксированный размер, берем безопасный дефолт,
-                    // так как синхронно "достать" метрики шрифта для Auto нельзя.
-                    // 1.2 — стандарт для веба/дизайна (Inter, Roboto и т.д.)
                     //@ts-ignore
-
                     obj._calcLineHeight = node.fontSize * 1.2;
                 }
             }
+
+            let calculatedOffset = 0;
+
+            try {
+                // Проверяем, есть ли текст, чтобы не уронить плагин
+                if (node.characters && node.characters.trim().length > 0) {
+                    
+                    const clone = node.clone();
+                    
+                    // ВАЖНО: Выкидываем клон в корень страницы, чтобы убрать влияние групп/фреймов
+                    figma.currentPage.appendChild(clone);
+                    
+                    // Сбрасываем трансформации, чтобы измерять чистую геометрию
+                    clone.rotation = 0;
+                    clone.x = 0;
+                    clone.y = 0;
+
+                    // Запоминаем, где стоит верх текстового контейнера (в идеале это 0)
+                    const textTop = clone.absoluteBoundingBox.y;
+
+                    // Превращаем в кривые
+                    const flat = figma.flatten([clone]);
+                    
+                    // Смотрим, где оказалась верхняя точка кривых (букв)
+                    const vectorTop = flat.absoluteBoundingBox.y;
+
+                    // Разница — это пустота сверху
+                    calculatedOffset = vectorTop - textTop;
+
+                    // Убираем мусор
+                    flat.remove();
+                }
+            } catch (error) {
+                console.log('Geometry calc error', error);
+                calculatedOffset = 0;
+            }
+
+            //@ts-ignore
+            obj['_metricTopOffset'] = calculatedOffset;
         }
 
         // keep track of Auto-layout frames for alignment of children
