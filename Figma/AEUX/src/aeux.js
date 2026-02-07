@@ -495,8 +495,7 @@ function getCompoundPaths(layer, computedFills, computedStrokes) {
             var pathStroke = null;
 
             if (pObj.isOutline) {
-                // ХАК: Если это Outline из strokeGeometry, 
-                // мы берем цвет ОБВОДКИ слоя, но применяем его как ЗАЛИВКУ пути.
+                // ХАК: Если это Outline из strokeGeometry...
                 if (computedStrokes && computedStrokes.length > 0) {
                     // Превращаем данные обводки в данные заливки
                     pathFill = computedStrokes.map(s => ({
@@ -504,7 +503,13 @@ function getCompoundPaths(layer, computedFills, computedStrokes) {
                         enabled: s.enabled,
                         color: s.color,
                         opacity: s.opacity,
-                        blendMode: s.blendMode
+                        blendMode: s.blendMode,
+                        
+                        // --- ДОБАВЛЕНЫ СВОЙСТВА ГРАДИЕНТА ---
+                        gradType: s.gradType,
+                        gradient: s.gradient,
+                        startPoint: s.startPoint,
+                        endPoint: s.endPoint
                     }));
                 }
                 // Обводку выключаем, так как мы уже нарисовали её форму заливкой
