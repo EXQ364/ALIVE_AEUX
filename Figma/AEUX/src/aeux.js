@@ -1152,45 +1152,38 @@ function getShapeBlending(mode) {
 //// get shape data: PATH
 function getPath(layer, bounding) {
     var combinedData = [];
-    
-    // Вспомогательный массив для хранения границ (bbox) путей заливки
     var fillFingerprints = [];
 
-    // Есть ли у слоя видимая обводка?
+    // Проверяем наличие активной обводки
     var hasActiveStroke = false;
     if (layer.strokes && layer.strokes.length > 0) {
         hasActiveStroke = layer.strokes.some(s => s.visible !== false);
     }
     if (layer.strokeWeight === 0 && !layer.strokeTopWeight) { hasActiveStroke = false; }
 
-    // --- 1. FILL GEOMETRY (Приоритет: Скелет) ---
+    // --- 1. FILL GEOMETRY ---
     if (layer.fillGeometry && layer.fillGeometry.length > 0) {
         var fillPaths = layer.fillGeometry;
         for (var i = 0; i < fillPaths.length; i++) {
             var d = fillPaths[i].data;
             if (!d) continue;
 
-            // Парсим сразу для получения BBox
+            // Сохраняем BBox для дедупликации
             var parsedTemp = parseSvg(d, false);
             var bbox = getPathBBox(parsedTemp);
             
-            fillFingerprints.push({
-                bbox: bbox,
-                data: d
-            });
+            fillFingerprints.push({ bbox: bbox, data: d });
 
             combinedData.push({ 
                 data: d, 
                 key: 'fill-' + i, 
                 isFill: true, 
-                // Включаем обводку на скелете, если у слоя она есть
                 isStroke: hasActiveStroke 
             });
         }
     }
 
-    // --- 2. STROKE GEOMETRY (Приоритет: Детали, которых нет в заливке) ---
-    // Используем это для элементов типа дуги Магнита, у которых нет заливки
+    // --- 2. STROKE GEOMETRY ---
     if (layer.strokeGeometry && layer.strokeGeometry.length > 0) {
         var strokePaths = layer.strokeGeometry;
         for (var i = 0; i < strokePaths.length; i++) {
@@ -1200,20 +1193,14 @@ function getPath(layer, bounding) {
             var parsedTemp = parseSvg(d, false);
             var bbox = getPathBBox(parsedTemp);
 
-            // Проверяем, является ли этот путь очертанием уже существующей заливки.
-            // BBox очертания (Outline) обычно чуть больше BBox скелета на величину strokeWeight.
-            // Мы используем "мягкое" сравнение.
+            // Проверка на дубликат (если это outline уже существующей заливки)
             var isDuplicate = false;
-            
             for (var j = 0; j < fillFingerprints.length; j++) {
                 var fBox = fillFingerprints[j].bbox;
-                
-                // Проверяем перекрытие и схожесть центров
+                // Сравнение центров и размеров с погрешностью
                 var centerDistX = Math.abs((bbox.x + bbox.w/2) - (fBox.x + fBox.w/2));
                 var centerDistY = Math.abs((bbox.y + bbox.h/2) - (fBox.y + fBox.h/2));
                 
-                // Если центры совпадают (с погрешностью) И размеры сопоставимы
-                // (учитываем, что outline всегда >= skeleton)
                 if (centerDistX < 2 && centerDistY < 2) {
                     isDuplicate = true;
                     break;
@@ -1221,23 +1208,19 @@ function getPath(layer, bounding) {
             }
 
             if (!isDuplicate) {
-                // ЭТО УНИКАЛЬНЫЙ ЭЛЕМЕНТ (например, Дуга Магнита)
-                // Так как это strokeGeometry, это уже "очерченная" форма (Outline).
-                // В AE мы должны ЗАЛИТЬ её цветом обводки, а обводку ВЫКЛЮЧИТЬ.
+                // Это уникальная деталь (дуга магнита и т.д.)
                 combinedData.push({ 
                     data: d, 
                     key: 'stroke-unique-' + i,
-                    // ВАЖНО: Это хак. Мы говорим AE "залей это", хотя в Figma это было обводкой.
-                    // Но геометрически это замкнутый контур обводки.
-                    isFill: true, // Заливаем (цветом, который возьмем из stroke слоя)
-                    isStroke: false, // Не обводим (иначе будет обводка вокруг обводки)
-                    isOutline: true // Флаг для дальнейшей обработки (цвета)
+                    isFill: true,     // Заливаем цветом обводки (так как это Outline)
+                    isStroke: false,  // Выключаем обводку
+                    isOutline: true   // Флаг для назначения цвета Stroke вместо Fill
                 });
             }
         }
     }
 
-    // --- 3. VECTOR PATHS (Резерв для простых линий) ---
+    // --- 3. VECTOR PATHS (Fallback) ---
     if (combinedData.length === 0 && layer.vectorPaths && layer.vectorPaths.length > 0) {
         var vPaths = Array.isArray(layer.vectorPaths) ? layer.vectorPaths : [layer.vectorPaths];
         for (var i = 0; i < vPaths.length; i++) {
@@ -1252,40 +1235,26 @@ function getPath(layer, bounding) {
         }
     }
 
-    // --- ПАРСИНГ И РЕНДЕР (Без изменений) ---
+    // --- ПАРСИНГ ---
     var parsedPaths = [];
-    var globalMinX = Infinity;
-    var globalMinY = Infinity;
+    
+    // ВАЖНО: Мы убрали вычисление globalMinX/Y и сдвиг координат.
+    // Координаты fillGeometry/strokeGeometry уже локальны для слоя.
+    // After Effects (через host.ts) сам центрирует их относительно Anchor Point.
 
     for (var i = 0; i < combinedData.length; i++) {
         var svgResult = parseSvg(combinedData[i].data, false);
         
         for (var p = 0; p < svgResult.length; p++) {
-            for (var pt of svgResult[p].points) {
-                if (pt[0] < globalMinX) globalMinX = pt[0];
-                if (pt[1] < globalMinY) globalMinY = pt[1];
-            }
             svgResult[p].renderFill = combinedData[i].isFill;
             svgResult[p].renderStroke = combinedData[i].isStroke;
             
-            // Если это Outline (из strokeGeometry), нам нужно будет
-            // в функции getStrokes/getFills подменить цвет. 
-            // Но пока просто передаем геометрию.
             if (combinedData[i].isOutline) {
                 svgResult[p].isOutline = true; 
             }
 
             parsedPaths.push(svgResult[p]);
         }
-    }
-
-    if (globalMinX !== Infinity && globalMinY !== Infinity) {
-        parsedPaths.forEach(p => {
-            for (var j = 0; j < p.points.length; j++) {
-                p.points[j][0] -= globalMinX;
-                p.points[j][1] -= globalMinY;
-            }
-        });
     }
 
     if (parsedPaths.length > 1) {
