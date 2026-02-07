@@ -490,11 +490,30 @@ function getCompoundPaths(layer, computedFills, computedStrokes) {
         for (var i = 0; i < parsed.length; i++) {
             var pObj = parsed[i];
             
-            // Logic: 
-            // If path came from fillGeometry -> give it fill style.
-            // If path came from strokeGeometry -> give it stroke style.
-            var pathFill = (pObj.renderFill) ? computedFills : null;
-            var pathStroke = (pObj.renderStroke) ? computedStrokes : null;
+            // ЛОГИКА ЦВЕТОВ:
+            var pathFill = null;
+            var pathStroke = null;
+
+            if (pObj.isOutline) {
+                // ХАК: Если это Outline из strokeGeometry, 
+                // мы берем цвет ОБВОДКИ слоя, но применяем его как ЗАЛИВКУ пути.
+                if (computedStrokes && computedStrokes.length > 0) {
+                    // Превращаем данные обводки в данные заливки
+                    pathFill = computedStrokes.map(s => ({
+                        type: s.type,
+                        enabled: s.enabled,
+                        color: s.color,
+                        opacity: s.opacity,
+                        blendMode: s.blendMode
+                    }));
+                }
+                // Обводку выключаем, так как мы уже нарисовали её форму заливкой
+                pathStroke = null; 
+            } else {
+                // Стандартная логика
+                pathFill = (pObj.renderFill) ? computedFills : null;
+                pathStroke = (pObj.renderStroke) ? computedStrokes : null;
+            }
 
             var pathLayer = {
                 type: 'Path',
@@ -504,12 +523,12 @@ function getCompoundPaths(layer, computedFills, computedStrokes) {
                 path: pObj,
                 flip: [100, 100],
                 rotation: 0,
-                booleanOperation: getBoolType(layer),
+                booleanOperation: -1, // Отключаем булевы, пусть рисуются просто слоями
                 opacity: 100,
                 blendMode: getLayerBlending(layer.blendMode),
                 isVisible: true,
                 
-                // Assign specific styles
+                // Применяем вычисленные стили
                 fill: pathFill,
                 stroke: pathStroke
             };
@@ -1134,36 +1153,44 @@ function getShapeBlending(mode) {
 function getPath(layer, bounding) {
     var combinedData = [];
     
-    // Хранилище для проверки дубликатов по Bounding Box (x+y+w+h)
-    // Это надежнее, чем сравнивать SVG-строки, так как координаты могут отличаться на 0.001
-    var filledPathsFingerprints = [];
+    // Вспомогательный массив для хранения границ (bbox) путей заливки
+    var fillFingerprints = [];
 
-    // --- 1. FILL GEOMETRY (Главный источник) ---
+    // Есть ли у слоя видимая обводка?
+    var hasActiveStroke = false;
+    if (layer.strokes && layer.strokes.length > 0) {
+        hasActiveStroke = layer.strokes.some(s => s.visible !== false);
+    }
+    if (layer.strokeWeight === 0 && !layer.strokeTopWeight) { hasActiveStroke = false; }
+
+    // --- 1. FILL GEOMETRY (Приоритет: Скелет) ---
     if (layer.fillGeometry && layer.fillGeometry.length > 0) {
         var fillPaths = layer.fillGeometry;
         for (var i = 0; i < fillPaths.length; i++) {
             var d = fillPaths[i].data;
             if (!d) continue;
 
-            // Парсим сразу, чтобы получить Bounding Box для сравнения
+            // Парсим сразу для получения BBox
             var parsedTemp = parseSvg(d, false);
-            var bounds = getPathBounds(parsedTemp);
-            var fingerprint = bounds.join('|'); // "x|y|w|h"
-
-            filledPathsFingerprints.push(fingerprint);
+            var bbox = getPathBBox(parsedTemp);
+            
+            fillFingerprints.push({
+                bbox: bbox,
+                data: d
+            });
 
             combinedData.push({ 
                 data: d, 
                 key: 'fill-' + i, 
                 isFill: true, 
-                // Пока ставим false, включим true, если найдем совпадение в strokeGeometry
-                // ИЛИ если у слоя есть глобальная обводка, но нет strokeGeometry (редкий кейс)
-                isStroke: false 
+                // Включаем обводку на скелете, если у слоя она есть
+                isStroke: hasActiveStroke 
             });
         }
     }
 
-    // --- 2. STROKE GEOMETRY (Умное объединение) ---
+    // --- 2. STROKE GEOMETRY (Приоритет: Детали, которых нет в заливке) ---
+    // Используем это для элементов типа дуги Магнита, у которых нет заливки
     if (layer.strokeGeometry && layer.strokeGeometry.length > 0) {
         var strokePaths = layer.strokeGeometry;
         for (var i = 0; i < strokePaths.length; i++) {
@@ -1171,38 +1198,46 @@ function getPath(layer, bounding) {
             if (!d) continue;
 
             var parsedTemp = parseSvg(d, false);
-            var bounds = getPathBounds(parsedTemp);
-            
-            // Ищем, есть ли похожий путь среди уже добавленных заливок
-            var matchIndex = findMatchingBoundIndex(bounds, filledPathsFingerprints);
+            var bbox = getPathBBox(parsedTemp);
 
-            if (matchIndex !== -1) {
-                // ДУБЛИКАТ НАЙДЕН!
-                // Это значит, что эта обводка принадлежит уже существующей фигуре заливки.
-                // Не добавляем новый путь, а просто включаем stroke у существующего.
-                combinedData[matchIndex].isStroke = true;
-            } else {
-                // НОВЫЙ ПУТЬ!
-                // Это какая-то деталь (например, дуга магнита), которой не было в заливке.
-                // Добавляем её.
+            // Проверяем, является ли этот путь очертанием уже существующей заливки.
+            // BBox очертания (Outline) обычно чуть больше BBox скелета на величину strokeWeight.
+            // Мы используем "мягкое" сравнение.
+            var isDuplicate = false;
+            
+            for (var j = 0; j < fillFingerprints.length; j++) {
+                var fBox = fillFingerprints[j].bbox;
+                
+                // Проверяем перекрытие и схожесть центров
+                var centerDistX = Math.abs((bbox.x + bbox.w/2) - (fBox.x + fBox.w/2));
+                var centerDistY = Math.abs((bbox.y + bbox.h/2) - (fBox.y + fBox.h/2));
+                
+                // Если центры совпадают (с погрешностью) И размеры сопоставимы
+                // (учитываем, что outline всегда >= skeleton)
+                if (centerDistX < 2 && centerDistY < 2) {
+                    isDuplicate = true;
+                    break;
+                }
+            }
+
+            if (!isDuplicate) {
+                // ЭТО УНИКАЛЬНЫЙ ЭЛЕМЕНТ (например, Дуга Магнита)
+                // Так как это strokeGeometry, это уже "очерченная" форма (Outline).
+                // В AE мы должны ЗАЛИТЬ её цветом обводки, а обводку ВЫКЛЮЧИТЬ.
                 combinedData.push({ 
                     data: d, 
-                    key: 'stroke-' + i, 
-                    isFill: false, // Заливки у этого куска быть не должно
-                    isStroke: true 
+                    key: 'stroke-unique-' + i,
+                    // ВАЖНО: Это хак. Мы говорим AE "залей это", хотя в Figma это было обводкой.
+                    // Но геометрически это замкнутый контур обводки.
+                    isFill: true, // Заливаем (цветом, который возьмем из stroke слоя)
+                    isStroke: false, // Не обводим (иначе будет обводка вокруг обводки)
+                    isOutline: true // Флаг для дальнейшей обработки (цвета)
                 });
             }
         }
-    } 
-    // Фолбэк: если strokeGeometry пуст, но у слоя есть обводка, включим её для всех fill путей
-    else if (layer.strokes && layer.strokes.length > 0) {
-        var hasVisStroke = layer.strokes.some(s => s.visible !== false);
-        if (hasVisStroke && combinedData.length > 0) {
-            combinedData.forEach(p => p.isStroke = true);
-        }
     }
 
-    // --- 3. VECTOR PATHS (Если вообще ничего не нашли) ---
+    // --- 3. VECTOR PATHS (Резерв для простых линий) ---
     if (combinedData.length === 0 && layer.vectorPaths && layer.vectorPaths.length > 0) {
         var vPaths = Array.isArray(layer.vectorPaths) ? layer.vectorPaths : [layer.vectorPaths];
         for (var i = 0; i < vPaths.length; i++) {
@@ -1217,7 +1252,7 @@ function getPath(layer, bounding) {
         }
     }
 
-    // --- ПАРСИНГ И НОРМАЛИЗАЦИЯ (Без изменений) ---
+    // --- ПАРСИНГ И РЕНДЕР (Без изменений) ---
     var parsedPaths = [];
     var globalMinX = Infinity;
     var globalMinY = Infinity;
@@ -1232,6 +1267,14 @@ function getPath(layer, bounding) {
             }
             svgResult[p].renderFill = combinedData[i].isFill;
             svgResult[p].renderStroke = combinedData[i].isStroke;
+            
+            // Если это Outline (из strokeGeometry), нам нужно будет
+            // в функции getStrokes/getFills подменить цвет. 
+            // Но пока просто передаем геометрию.
+            if (combinedData[i].isOutline) {
+                svgResult[p].isOutline = true; 
+            }
+
             parsedPaths.push(svgResult[p]);
         }
     }
@@ -1251,6 +1294,22 @@ function getPath(layer, bounding) {
     }
 
     return parsedPaths[0] || { points: [], inTangents: [], outTangents: [], closed: false };
+}
+
+// === ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ГРАНИЦ ===
+function getPathBBox(paths) {
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    if (!paths) return {x:0, y:0, w:0, h:0};
+    
+    paths.forEach(p => {
+        p.points.forEach(pt => {
+            if (pt[0] < minX) minX = pt[0];
+            if (pt[1] < minY) minY = pt[1];
+            if (pt[0] > maxX) maxX = pt[0];
+            if (pt[1] > maxY) maxY = pt[1];
+        });
+    });
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
 // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (добавить внутрь aeux.js или вне getPath) ===
