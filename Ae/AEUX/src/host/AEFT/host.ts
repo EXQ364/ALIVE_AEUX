@@ -868,23 +868,29 @@ function aePath(layer, opt_parent) {
 
     // --- ИСПРАВЛЕНИЕ ТРАНСФОРМАЦИЙ ---
     
-    // 1. Anchor Point ставим в центр фигуры (width/2, height/2)
-    // Это заставит AE вращать фигуру вокруг её центра, как в Figma.
+    // 1. Anchor Point
     r('ADBE Transform Group')('ADBE Anchor Point').setValue([
         (layer.frame.width / 2) * compMult, 
         (layer.frame.height / 2) * compMult
     ]);
 
-    // 2. Position (Figma уже присылает координаты центра, так что это корректно)
+    // 2. Position
     r('ADBE Transform Group')('ADBE Position').setValue([
         layer.frame.x * compMult, 
         layer.frame.y * compMult
     ]);
 
-    // 3. Остальные трансформы
+    // 3. Rotation & Opacity
     r('ADBE Transform Group')('ADBE Rotate Z').setValue(layer.rotation);
     r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
-    r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
+
+    // 4. Scale (ИСПРАВЛЕНО: учитываем polyScale)
+    var finalScale = [layer.flip[0], layer.flip[1]];
+    if (layer.polyScale) {
+        finalScale[0] = finalScale[0] * (layer.polyScale[0] / 100);
+        finalScale[1] = finalScale[1] * (layer.polyScale[1] / 100);
+    }
+    r('ADBE Transform Group')('ADBE Scale').setValue(finalScale);
     
     // Parenting
     if (opt_parent !== null) {
@@ -935,7 +941,13 @@ function aeCompound(layer, opt_parent) {
 
     r('ADBE Transform Group')('ADBE Rotate Z').setValue(layer.rotation);
     r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
-    r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
+    // Scale Fix
+    var finalScale = [layer.flip[0], layer.flip[1]];
+    if (layer.polyScale) {
+        finalScale[0] = finalScale[0] * (layer.polyScale[0] / 100);
+        finalScale[1] = finalScale[1] * (layer.polyScale[1] / 100);
+    }
+    r('ADBE Transform Group')('ADBE Scale').setValue(finalScale);
     
     if (opt_parent !== null) {
         r.parent = opt_parent;

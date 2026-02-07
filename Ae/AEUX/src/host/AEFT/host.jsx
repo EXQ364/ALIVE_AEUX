@@ -563,7 +563,12 @@ var AEUX = (function () {
         ]);
         r('ADBE Transform Group')('ADBE Rotate Z').setValue(layer.rotation);
         r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
-        r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
+        var finalScale = [layer.flip[0], layer.flip[1]];
+        if (layer.polyScale) {
+            finalScale[0] = finalScale[0] * (layer.polyScale[0] / 100);
+            finalScale[1] = finalScale[1] * (layer.polyScale[1] / 100);
+        }
+        r('ADBE Transform Group')('ADBE Scale').setValue(finalScale);
         if (opt_parent !== null) {
             r.parent = opt_parent;
             r.moveAfter(opt_parent);
@@ -598,7 +603,12 @@ var AEUX = (function () {
         ]);
         r('ADBE Transform Group')('ADBE Rotate Z').setValue(layer.rotation);
         r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
-        r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
+        var finalScale = [layer.flip[0], layer.flip[1]];
+        if (layer.polyScale) {
+            finalScale[0] = finalScale[0] * (layer.polyScale[0] / 100);
+            finalScale[1] = finalScale[1] * (layer.polyScale[1] / 100);
+        }
+        r('ADBE Transform Group')('ADBE Scale').setValue(finalScale);
         if (opt_parent !== null) {
             r.parent = opt_parent;
             r.moveAfter(opt_parent);
