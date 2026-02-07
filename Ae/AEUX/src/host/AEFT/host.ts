@@ -826,20 +826,15 @@ function aeStar(layer, opt_parent) {
 
 //// path
 function aePath(layer, opt_parent) {
-    // skip if no vertices
-    if (!layer.path && !layer.layers) { return; } // layer.layers check added for compound fallback
+    if (!layer.path && !layer.layers) { return; } 
 
     var r = initShapeLayer(layer, opt_parent);
 
-    /// create an empty group
     var group = r(2).addProperty('ADBE Vector Group');
     r(2)(1).name = layer.name;
-    // create a path group
     group(2).addProperty('ADBE Vector Shape - Group');
-    // create a vector object
     var pathProp = group(2)(1).property('ADBE Vector Shape');
     
-    // get vertex data
     if (layer.path) {
         var pathObj = {
             path: pathProp,
@@ -848,17 +843,14 @@ function aePath(layer, opt_parent) {
             outTangents: layer.path.outTangents,
             closed: layer.path.closed
         };
-        // Мы НЕ смещаем точки здесь, оставляем их как есть (от 0,0)
         createStaticShape(pathObj, [0,0]);
     }
 
-    /// round corners (если есть)
     if (layer.roundness > 0) {
         var round = group(2).addProperty('ADBE Vector Filter - RC');
         round('ADBE Vector RoundCorner Radius').setValue(layer.roundness);
     }
 
-    /// add layer elements
     addStroke(r, layer);
     addFill(r, layer);
     addDropShadow(r, layer);
@@ -866,33 +858,22 @@ function aePath(layer, opt_parent) {
     addInnerShadow(r, layer);
     setLayerBlendMode(r, layer);
 
-    // --- ИСПРАВЛЕНИЕ ТРАНСФОРМАЦИЙ ---
-    
-    // 1. Anchor Point
+    // --- СНАЧАЛА ТРАНСФОРМАЦИИ (В МИРОВЫХ КООРДИНАТАХ) ---
     r('ADBE Transform Group')('ADBE Anchor Point').setValue([
         (layer.frame.width / 2) * compMult, 
         (layer.frame.height / 2) * compMult
     ]);
 
-    // 2. Position
     r('ADBE Transform Group')('ADBE Position').setValue([
         layer.frame.x * compMult, 
         layer.frame.y * compMult
     ]);
 
-    // 3. Rotation & Opacity
     r('ADBE Transform Group')('ADBE Rotate Z').setValue(layer.rotation);
     r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
+    r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip); // Используем просто flip
 
-    // 4. Scale (ИСПРАВЛЕНО: учитываем polyScale)
-    // var finalScale = [layer.flip[0], layer.flip[1]];
-    // if (layer.polyScale) {
-    //     finalScale[0] = finalScale[0] * (layer.polyScale[0] / 100);
-    //     finalScale[1] = finalScale[1] * (layer.polyScale[1] / 100);
-    // }
-    r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
-    
-    // Parenting
+    // --- В САМОМ КОНЦЕ - ПРИВЯЗКА (AE САМ ПЕРЕСЧИТАЕТ ЛОКАЛЬНЫЕ КООРДИНАТЫ) ---
     if (opt_parent !== null) {
       r.parent = opt_parent;
       r.moveAfter(opt_parent);
@@ -901,7 +882,6 @@ function aePath(layer, opt_parent) {
     setMask(r, layer);
     addBgBlur(r, layer);
 }
-
 //// compound path
 function aeCompound(layer, opt_parent) {
     var r = initShapeLayer(layer, opt_parent);
@@ -925,15 +905,12 @@ function aeCompound(layer, opt_parent) {
     addInnerShadow(r, layer);
     setLayerBlendMode(r, layer);
 
-    // --- ИСПРАВЛЕНИЕ ТРАНСФОРМАЦИЙ ---
-    
-    // 1. Anchor Point в центр
+    // --- СНАЧАЛА ТРАНСФОРМАЦИИ ---
     r('ADBE Transform Group')('ADBE Anchor Point').setValue([
         (layer.frame.width / 2) * compMult, 
         (layer.frame.height / 2) * compMult
     ]);
     
-    // 2. Position (Координаты центра из Figma)
     r('ADBE Transform Group')('ADBE Position').setValue([
         layer.frame.x * compMult, 
         layer.frame.y * compMult
@@ -941,14 +918,9 @@ function aeCompound(layer, opt_parent) {
 
     r('ADBE Transform Group')('ADBE Rotate Z').setValue(layer.rotation);
     r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
-    // Scale Fix
-    // var finalScale = [layer.flip[0], layer.flip[1]];
-    // if (layer.polyScale) {
-    //     finalScale[0] = finalScale[0] * (layer.polyScale[0] / 100);
-    //     finalScale[1] = finalScale[1] * (layer.polyScale[1] / 100);
-    // }
-    r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
+    r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip); // Используем просто flip
     
+    // --- В КОНЦЕ ПРИВЯЗКА ---
     if (opt_parent !== null) {
         r.parent = opt_parent;
         r.moveAfter(opt_parent);
@@ -957,19 +929,14 @@ function aeCompound(layer, opt_parent) {
     setMask(r, layer);
     addBgBlur(r, layer);
 
-    // ========== ВНУТРЕННИЕ ФУНКЦИИ ==========
-    
-    // Хелпер для безопасного получения Contents
+    // ... (ВНУТРЕННИЕ ФУНКЦИИ getContents и др. ОСТАВИТЬ КАК ЕСТЬ) ...
     function getContents(propGroup) {
-        // Пробуем по Match Name (самый надежный способ)
         var contents = propGroup.property("ADBE Vectors Group");
-        // Если вдруг нет, пробуем по имени
         if (!contents) contents = propGroup.property("Contents");
-        // Если и так нет, по индексу 2 (стандарт)
         if (!contents) contents = propGroup.property(2);
         return contents;
     }
-
+    // ... (остальные внутренние функции createCompoundShapes, addMerge и т.д.) ...
     function createCompoundShapes(targetGroup, layerData) {
         var layerCount = layerData.layers.length || 0;
         var targetContents = getContents(targetGroup);
@@ -979,15 +946,12 @@ function aeCompound(layer, opt_parent) {
             var shape = layerData.layers[i];
             if (!shape) continue;
 
-            // Nested compound
             if (shape.type === 'CompoundShape') {
                 var subGroup = targetContents.addProperty('ADBE Vector Group');
                 subGroup.name = shape.name;
                 createCompoundShapes(subGroup, shape);
                 continue;
             }
-            
-            // Primitives
             if (shape.type === 'Rect' && prefs.parametrics) {
                 var rect = targetContents.addProperty('ADBE Vector Shape - Rect');
                 rect.property('ADBE Vector Rect Size').setValue([shape.frame.width, shape.frame.height]);
@@ -999,20 +963,13 @@ function aeCompound(layer, opt_parent) {
                 ellipse.property('ADBE Vector Ellipse Size').setValue([shape.frame.width, shape.frame.height]);
                 ellipse.property('ADBE Vector Ellipse Position').setValue([shape.frame.width / 2, shape.frame.height / 2]);
             }
-            
-            // Path (Complex Shapes)
             if (shape.type === 'Path' || !prefs.parametrics) {
                 if (!shape.path || !shape.path.points || shape.path.points.length < 2) continue; 
-                
                 var workGroup = needsSubGroup(targetGroup, shape);
                 var workContents = getContents(workGroup);
                 if (!workContents) continue;
-
                 var vect = workContents.addProperty('ADBE Vector Shape - Group');
-                
-                // Ищем свойство Path (ADBE Vector Shape)
                 var pathProp = vect.property('ADBE Vector Shape');
-                // Фоллбэки поиска свойства
                 if (!pathProp) pathProp = vect.property('Path');
                 if (!pathProp) pathProp = vect.property(1);
 
@@ -1026,27 +983,16 @@ function aeCompound(layer, opt_parent) {
                     };
                     createStaticShape(pathObj, [0, 0]);
                 }
-
                 if (shape.roundness > 0) {
                     var round = workContents.addProperty('ADBE Vector Filter - RC');
                     if (round) round.property('ADBE Vector RoundCorner Radius').setValue(shape.roundness);
                 }
-                
-                // Styles
-                if (shape.fill && shape.fill.length > 0) {
-                    addFillToGroup(workGroup, shape.fill);
-                }
-                if (shape.stroke && shape.stroke.length > 0) {
-                    addStrokeToGroup(workGroup, shape.stroke);
-                }
+                if (shape.fill && shape.fill.length > 0) addFillToGroup(workGroup, shape.fill);
+                if (shape.stroke && shape.stroke.length > 0) addStrokeToGroup(workGroup, shape.stroke);
             }
-
-            if (i == layerCount - 1 && layerData.booleanOperation > -1) {
-                addMerge(targetGroup, layerData.booleanOperation);
-            }
+            if (i == layerCount - 1 && layerData.booleanOperation > -1) addMerge(targetGroup, layerData.booleanOperation);
         }
     }
-    
     function addMerge(targetGroup, bool) {
         if (bool < 0) return;
         var cont = getContents(targetGroup);
@@ -1055,9 +1001,7 @@ function aeCompound(layer, opt_parent) {
             if (merge) merge.property('ADBE Vector Merge Type').setValue(bool + 2);
         }
     }
-
     function needsSubGroup(parentGroup, shape) {
-        // Если есть трансформы, создаем вложенную группу
         if (shape.rotation != 0 || (shape.flip[0] != 100 || shape.flip[1] != 100)) {
             var parentContents = getContents(parentGroup);
             var subGroup = parentContents.addProperty('ADBE Vector Group');
@@ -1068,16 +1012,13 @@ function aeCompound(layer, opt_parent) {
         }
         return parentGroup;
     }
-    
     function addFillToGroup(targetGroup, fillArray) {
         if (!fillArray) return;
         var cont = getContents(targetGroup);
         if (!cont) return;
-
         for (var i = fillArray.length - 1; i >= 0; i--) {
             var fillData = fillArray[i];
             var fill;
-            
             if (fillData.type == 'fill') {
                 fill = cont.addProperty('ADBE Vector Graphic - Fill');
                 fill.enabled = fillData.enabled;
@@ -1087,7 +1028,7 @@ function aeCompound(layer, opt_parent) {
             } else if (fillData.type == 'gradient') {
                 fill = cont.addProperty('ADBE Vector Graphic - G-Fill');
                 fill.property("ADBE Vector Fill Opacity").setValue(fillData.opacity);
-                fill.property('ADBE Vector Grad Type').setValue(fillData.gradType);
+                fill.property('ADBE Vector Grad Type').setValue(fillData.gradType || 1);
                 fill.property('ADBE Vector Grad Start Pt').setValue(fillData.startPoint);
                 fill.property('ADBE Vector Grad End Pt').setValue(fillData.endPoint);
                 ae_deselectProps();
@@ -1097,16 +1038,13 @@ function aeCompound(layer, opt_parent) {
             }
         }
     }
-    
     function addStrokeToGroup(targetGroup, strokeArray) {
         if (!strokeArray) return;
         var cont = getContents(targetGroup);
         if (!cont) return;
-
         for (var i = strokeArray.length - 1; i >= 0; i--) {
             var strokeData = strokeArray[i];
             var stroke;
-            
             if (strokeData.type == 'fill') {
                 stroke = cont.addProperty('ADBE Vector Graphic - Stroke');
                 stroke.enabled = strokeData.enabled;
@@ -1116,7 +1054,6 @@ function aeCompound(layer, opt_parent) {
                 stroke.property("ADBE Vector Stroke Line Cap").setValue(strokeData.cap + 1);
                 stroke.property("ADBE Vector Stroke Line Join").setValue(strokeData.join + 1);
                 try { stroke.property("ADBE Vector Blend Mode").setValue(strokeData.blendMode); } catch(e){}
-                
                 if (strokeData.strokeDashes && strokeData.strokeDashes.length > 0) {
                     var dashGroup = stroke.property('ADBE Vector Stroke Dashes');
                     for (var j = 1; j <= strokeData.strokeDashes.length; j++) {
@@ -1136,12 +1073,11 @@ function aeCompound(layer, opt_parent) {
                 stroke.property("ADBE Vector Stroke Width").setValue(strokeData.width);
                 stroke.property("ADBE Vector Stroke Line Cap").setValue(strokeData.cap + 1);
                 stroke.property("ADBE Vector Stroke Line Join").setValue(strokeData.join + 1);
-                stroke.property('ADBE Vector Grad Type').setValue(strokeData.gradType);
+                stroke.property('ADBE Vector Grad Type').setValue(strokeData.gradType || 1);
                 stroke.property('ADBE Vector Grad Start Pt').setValue(strokeData.startPoint);
                 stroke.property('ADBE Vector Grad End Pt').setValue(strokeData.endPoint);
                 ae_deselectProps();
                 stroke.selected = true;
-                applyGradientFfx('stroke', false, strokeData);
                 try { stroke.property("ADBE Vector Blend Mode").setValue(strokeData.blendMode); } catch(e){}
             }
         }
@@ -1505,26 +1441,29 @@ function initShapeLayer(layer, opt_parent) {
     // deselect layer
     r.selected = false;
 
-    /// if the group layer has a parent
-    if (opt_parent !== null) {
-        // set the parent
-        // if (hostApp == 'Sketch') {
-        //     r.parent = opt_parent;
-        // } else {
-        //     r.parent = opt_parent;
-        // }
-        // move the layer after the parent
-        r.moveAfter(opt_parent);
-        // set layer visibility (eyeball)
-        r.enabled = (layer.isVisible && opt_parent.enabled );
-    } else {
-        // increment label color
-        labelColor = labelColor % 16 + 1;
-        // set layer visibility (eyeball)
-        r.enabled = layer.isVisible;
-    }
-    r.label = labelColor;
+    // /// if the group layer has a parent
+    // if (opt_parent !== null) {
+    //     // set the parent
+    //     // if (hostApp == 'Sketch') {
+    //     //     r.parent = opt_parent;
+    //     // } else {
+    //     //     r.parent = opt_parent;
+    //     // }
+    //     // move the layer after the parent
+    //     r.moveAfter(opt_parent);
+    //     // set layer visibility (eyeball)
+    //     r.enabled = (layer.isVisible && opt_parent.enabled );
+    // } else {
+    //     // increment label color
+    //     labelColor = labelColor % 16 + 1;
+    //     // set layer visibility (eyeball)
+    //     r.enabled = layer.isVisible;
+    // }
+    // r.label = labelColor;
 
+    labelColor = labelColor % 16 + 1;
+    r.label = labelColor;
+    r.enabled = layer.isVisible;
 
     return r;
 }

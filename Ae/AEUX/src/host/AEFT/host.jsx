@@ -667,16 +667,13 @@ var AEUX = (function () {
                         if (round)
                             round.property('ADBE Vector RoundCorner Radius').setValue(shape.roundness);
                     }
-                    if (shape.fill && shape.fill.length > 0) {
+                    if (shape.fill && shape.fill.length > 0)
                         addFillToGroup(workGroup, shape.fill);
-                    }
-                    if (shape.stroke && shape.stroke.length > 0) {
+                    if (shape.stroke && shape.stroke.length > 0)
                         addStrokeToGroup(workGroup, shape.stroke);
-                    }
                 }
-                if (i == layerCount - 1 && layerData.booleanOperation > -1) {
+                if (i == layerCount - 1 && layerData.booleanOperation > -1)
                     addMerge(targetGroup, layerData.booleanOperation);
-                }
             }
         }
         function addMerge(targetGroup, bool) {
@@ -722,7 +719,7 @@ var AEUX = (function () {
                 else if (fillData.type == 'gradient') {
                     fill = cont.addProperty('ADBE Vector Graphic - G-Fill');
                     fill.property("ADBE Vector Fill Opacity").setValue(fillData.opacity);
-                    fill.property('ADBE Vector Grad Type').setValue(fillData.gradType);
+                    fill.property('ADBE Vector Grad Type').setValue(fillData.gradType || 1);
                     fill.property('ADBE Vector Grad Start Pt').setValue(fillData.startPoint);
                     fill.property('ADBE Vector Grad End Pt').setValue(fillData.endPoint);
                     ae_deselectProps();
@@ -778,12 +775,11 @@ var AEUX = (function () {
                     stroke.property("ADBE Vector Stroke Width").setValue(strokeData.width);
                     stroke.property("ADBE Vector Stroke Line Cap").setValue(strokeData.cap + 1);
                     stroke.property("ADBE Vector Stroke Line Join").setValue(strokeData.join + 1);
-                    stroke.property('ADBE Vector Grad Type').setValue(strokeData.gradType);
+                    stroke.property('ADBE Vector Grad Type').setValue(strokeData.gradType || 1);
                     stroke.property('ADBE Vector Grad Start Pt').setValue(strokeData.startPoint);
                     stroke.property('ADBE Vector Grad End Pt').setValue(strokeData.endPoint);
                     ae_deselectProps();
                     stroke.selected = true;
-                    applyGradientFfx('stroke', false, strokeData);
                     try {
                         stroke.property("ADBE Vector Blend Mode").setValue(strokeData.blendMode);
                     }
@@ -1012,15 +1008,9 @@ var AEUX = (function () {
         var r = thisComp.layers.addShape();
         r.name = layer.name;
         r.selected = false;
-        if (opt_parent !== null) {
-            r.moveAfter(opt_parent);
-            r.enabled = (layer.isVisible && opt_parent.enabled);
-        }
-        else {
-            labelColor = labelColor % 16 + 1;
-            r.enabled = layer.isVisible;
-        }
+        labelColor = labelColor % 16 + 1;
         r.label = labelColor;
+        r.enabled = layer.isVisible;
         return r;
     }
     function createStaticShape(pathObj, layerOffset) {
