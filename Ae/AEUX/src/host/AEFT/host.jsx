@@ -563,12 +563,7 @@ var AEUX = (function () {
         ]);
         r('ADBE Transform Group')('ADBE Rotate Z').setValue(layer.rotation);
         r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
-        var finalScale = [layer.flip[0], layer.flip[1]];
-        if (layer.polyScale) {
-            finalScale[0] = finalScale[0] * (layer.polyScale[0] / 100);
-            finalScale[1] = finalScale[1] * (layer.polyScale[1] / 100);
-        }
-        r('ADBE Transform Group')('ADBE Scale').setValue(finalScale);
+        r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
         if (opt_parent !== null) {
             r.parent = opt_parent;
             r.moveAfter(opt_parent);
@@ -603,12 +598,7 @@ var AEUX = (function () {
         ]);
         r('ADBE Transform Group')('ADBE Rotate Z').setValue(layer.rotation);
         r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
-        var finalScale = [layer.flip[0], layer.flip[1]];
-        if (layer.polyScale) {
-            finalScale[0] = finalScale[0] * (layer.polyScale[0] / 100);
-            finalScale[1] = finalScale[1] * (layer.polyScale[1] / 100);
-        }
-        r('ADBE Transform Group')('ADBE Scale').setValue(finalScale);
+        r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
         if (opt_parent !== null) {
             r.parent = opt_parent;
             r.moveAfter(opt_parent);
@@ -1126,6 +1116,22 @@ var AEUX = (function () {
                                 stroke('ADBE Vector Stroke Dashes').addProperty('ADBE Vector Stroke Gap ' + (countRound)).setValue(strokeDashes[j - 1]);
                             }
                         }
+                    }
+                }
+                if (sData.align && sData.width > 0) {
+                    var offsetVal = 0;
+                    if (sData.align == "INSIDE") {
+                        offsetVal = -sData.width / 2;
+                    }
+                    else if (sData.align == "OUTSIDE") {
+                        offsetVal = sData.width / 2;
+                    }
+                    if (offsetVal !== 0) {
+                        var offset = targetContents.addProperty("ADBE Vector Filter - Offset");
+                        offset.property("ADBE Vector Offset Amount").setValue(offsetVal);
+                        offset.property("ADBE Vector Offset Miter Limit").setValue(4);
+                        var joinType = (sData.join == 1) ? 2 : (sData.join == 2) ? 1 : 3;
+                        offset.property("ADBE Vector Offset Line Join").setValue(joinType);
                     }
                 }
             }

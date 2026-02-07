@@ -885,12 +885,12 @@ function aePath(layer, opt_parent) {
     r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
 
     // 4. Scale (ИСПРАВЛЕНО: учитываем polyScale)
-    var finalScale = [layer.flip[0], layer.flip[1]];
-    if (layer.polyScale) {
-        finalScale[0] = finalScale[0] * (layer.polyScale[0] / 100);
-        finalScale[1] = finalScale[1] * (layer.polyScale[1] / 100);
-    }
-    r('ADBE Transform Group')('ADBE Scale').setValue(finalScale);
+    // var finalScale = [layer.flip[0], layer.flip[1]];
+    // if (layer.polyScale) {
+    //     finalScale[0] = finalScale[0] * (layer.polyScale[0] / 100);
+    //     finalScale[1] = finalScale[1] * (layer.polyScale[1] / 100);
+    // }
+    r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
     
     // Parenting
     if (opt_parent !== null) {
@@ -942,12 +942,12 @@ function aeCompound(layer, opt_parent) {
     r('ADBE Transform Group')('ADBE Rotate Z').setValue(layer.rotation);
     r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
     // Scale Fix
-    var finalScale = [layer.flip[0], layer.flip[1]];
-    if (layer.polyScale) {
-        finalScale[0] = finalScale[0] * (layer.polyScale[0] / 100);
-        finalScale[1] = finalScale[1] * (layer.polyScale[1] / 100);
-    }
-    r('ADBE Transform Group')('ADBE Scale').setValue(finalScale);
+    // var finalScale = [layer.flip[0], layer.flip[1]];
+    // if (layer.polyScale) {
+    //     finalScale[0] = finalScale[0] * (layer.polyScale[0] / 100);
+    //     finalScale[1] = finalScale[1] * (layer.polyScale[1] / 100);
+    // }
+    r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
     
     if (opt_parent !== null) {
         r.parent = opt_parent;
@@ -1687,6 +1687,29 @@ function addStroke(r, layer) {
                     }
                 }
             }
+
+            // ЛОГИКА ДЛЯ INSIDE / OUTSIDE STROKE
+        if (sData.align && sData.width > 0) {
+            var offsetVal = 0;
+            
+            if (sData.align == "INSIDE") {
+                // Сдвигаем путь внутрь на половину толщины
+                offsetVal = -sData.width / 2;
+            } else if (sData.align == "OUTSIDE") {
+                // Сдвигаем путь наружу на половину толщины
+                offsetVal = sData.width / 2;
+            }
+
+            if (offsetVal !== 0) {
+                // Добавляем модификатор Offset Paths (Смещение контуров)
+                var offset = targetContents.addProperty("ADBE Vector Filter - Offset");
+                offset.property("ADBE Vector Offset Amount").setValue(offsetVal);
+                offset.property("ADBE Vector Offset Miter Limit").setValue(4);
+                // Line Join: 1=Bevel, 2=Round, 3=Miter. Конвертируем из Figma (0/1/2) в AE (2/3/1) или просто ставим Miter/Round
+                var joinType = (sData.join == 1) ? 2 : (sData.join == 2) ? 1 : 3; // Примерное сопоставление
+                offset.property("ADBE Vector Offset Line Join").setValue(joinType);
+            }
+        }
         }
     }
 

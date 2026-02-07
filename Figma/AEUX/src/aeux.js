@@ -917,6 +917,7 @@ function getStrokes(layer) {
                     join: getJoin(layer),
                     strokeDashes: layer.dashPattern,
                     blendMode: getShapeBlending( stroke.blendMode ),
+                    align: layer.strokeAlign 
                 }
             }
 
