@@ -1133,52 +1133,91 @@ function getShapeBlending(mode) {
 //// get shape data: PATH
 function getPath(layer, bounding) {
     var combinedData = [];
+    
+    // Хранилище для проверки дубликатов по Bounding Box (x+y+w+h)
+    // Это надежнее, чем сравнивать SVG-строки, так как координаты могут отличаться на 0.001
+    var filledPathsFingerprints = [];
 
-    // 1. ПРИОРИТЕТ: vectorPaths (Скелет вектора)
-    if (layer.vectorPaths && layer.vectorPaths.length > 0) {
-        var vPaths = Array.isArray(layer.vectorPaths) ? layer.vectorPaths : [layer.vectorPaths];
-        for (var i = 0; i < vPaths.length; i++) {
-            var d = vPaths[i].data || vPaths[i];
-            
-            // ИСПРАВЛЕНИЕ: Автоматическое определение заливки по замкнутости пути
-            var isClosed = (d.indexOf('Z') > -1 || d.indexOf('z') > -1);
-
-            combinedData.push({
-                data: d,
-                key: i,
-                isFill: isClosed, // Только замкнутые фигуры получают заливку
-                isStroke: true
-            });
-        }
-    } 
-    // 2. ЗАПАСНОЙ ВАРИАНТ: fillGeometry
-    else if (layer.fillGeometry && layer.fillGeometry.length > 0) {
+    // --- 1. FILL GEOMETRY (Главный источник) ---
+    if (layer.fillGeometry && layer.fillGeometry.length > 0) {
         var fillPaths = layer.fillGeometry;
         for (var i = 0; i < fillPaths.length; i++) {
             var d = fillPaths[i].data;
             if (!d) continue;
-            combinedData.push({ data: d, key: d, isFill: true, isStroke: true });
+
+            // Парсим сразу, чтобы получить Bounding Box для сравнения
+            var parsedTemp = parseSvg(d, false);
+            var bounds = getPathBounds(parsedTemp);
+            var fingerprint = bounds.join('|'); // "x|y|w|h"
+
+            filledPathsFingerprints.push(fingerprint);
+
+            combinedData.push({ 
+                data: d, 
+                key: 'fill-' + i, 
+                isFill: true, 
+                // Пока ставим false, включим true, если найдем совпадение в strokeGeometry
+                // ИЛИ если у слоя есть глобальная обводка, но нет strokeGeometry (редкий кейс)
+                isStroke: false 
+            });
         }
     }
-    
-    // Fallback для примитивов (прямоугольники, круги)
-    const allEqual = arr => arr.every(v => v === arr[0]);
-    var isPrimitive = (combinedData.length === 0) && (
-        (layer.type == 'RECTANGLE' && allEqual([layer.topLeftRadius, layer.topRightRadius, layer.bottomLeftRadius, layer.bottomRightRadius])) ||
-        layer.type == 'ELLIPSE' || 
-        layer.type == 'LINE'
-    );
 
-    if (isPrimitive) {
-        if (layer.type == 'RECTANGLE') return { points: [[0, 0], [bounding.width, 0], [bounding.width, bounding.height], [0, bounding.height]], inTangents: [], outTangents: [], closed: true };
-        if (layer.type == 'ELLIPSE') {
-            var k = 0.5522847498; var hw = bounding.width / 2; var hh = bounding.height / 2; var ox = hw * k; var oy = hh * k;
-            return { points: [[hw, 0], [bounding.width, hh], [hw, bounding.height], [0, hh]], inTangents: [[-ox, 0], [0, -oy], [ox, 0], [0, oy]], outTangents: [[ox, 0], [0, oy], [-ox, 0], [0, -oy]], closed: true };
+    // --- 2. STROKE GEOMETRY (Умное объединение) ---
+    if (layer.strokeGeometry && layer.strokeGeometry.length > 0) {
+        var strokePaths = layer.strokeGeometry;
+        for (var i = 0; i < strokePaths.length; i++) {
+            var d = strokePaths[i].data;
+            if (!d) continue;
+
+            var parsedTemp = parseSvg(d, false);
+            var bounds = getPathBounds(parsedTemp);
+            
+            // Ищем, есть ли похожий путь среди уже добавленных заливок
+            var matchIndex = findMatchingBoundIndex(bounds, filledPathsFingerprints);
+
+            if (matchIndex !== -1) {
+                // ДУБЛИКАТ НАЙДЕН!
+                // Это значит, что эта обводка принадлежит уже существующей фигуре заливки.
+                // Не добавляем новый путь, а просто включаем stroke у существующего.
+                combinedData[matchIndex].isStroke = true;
+            } else {
+                // НОВЫЙ ПУТЬ!
+                // Это какая-то деталь (например, дуга магнита), которой не было в заливке.
+                // Добавляем её.
+                combinedData.push({ 
+                    data: d, 
+                    key: 'stroke-' + i, 
+                    isFill: false, // Заливки у этого куска быть не должно
+                    isStroke: true 
+                });
+            }
         }
-        if (layer.type == 'LINE') return { points: [[0, 0], [bounding.width, bounding.height]], inTangents: [], outTangents: [], closed: false };
+    } 
+    // Фолбэк: если strokeGeometry пуст, но у слоя есть обводка, включим её для всех fill путей
+    else if (layer.strokes && layer.strokes.length > 0) {
+        var hasVisStroke = layer.strokes.some(s => s.visible !== false);
+        if (hasVisStroke && combinedData.length > 0) {
+            combinedData.forEach(p => p.isStroke = true);
+        }
     }
 
-    // Парсинг и глобальный сдвиг (из предыдущего шага, без изменений)
+    // --- 3. VECTOR PATHS (Если вообще ничего не нашли) ---
+    if (combinedData.length === 0 && layer.vectorPaths && layer.vectorPaths.length > 0) {
+        var vPaths = Array.isArray(layer.vectorPaths) ? layer.vectorPaths : [layer.vectorPaths];
+        for (var i = 0; i < vPaths.length; i++) {
+            var d = vPaths[i].data || vPaths[i];
+            var isClosed = (d.indexOf('Z') > -1 || d.indexOf('z') > -1);
+            combinedData.push({
+                data: d,
+                key: 'vector-' + i,
+                isFill: isClosed,
+                isStroke: true
+            });
+        }
+    }
+
+    // --- ПАРСИНГ И НОРМАЛИЗАЦИЯ (Без изменений) ---
     var parsedPaths = [];
     var globalMinX = Infinity;
     var globalMinY = Infinity;
@@ -1212,6 +1251,54 @@ function getPath(layer, bounding) {
     }
 
     return parsedPaths[0] || { points: [], inTangents: [], outTangents: [], closed: false };
+}
+
+// === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (добавить внутрь aeux.js или вне getPath) ===
+
+function getPathBounds(paths) {
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    if (!paths || paths.length === 0) return [0,0,0,0];
+    
+    // Проходимся по всем точкам всех суб-путей
+    paths.forEach(p => {
+        p.points.forEach(pt => {
+            if (pt[0] < minX) minX = pt[0];
+            if (pt[1] < minY) minY = pt[1];
+            if (pt[0] > maxX) maxX = pt[0];
+            if (pt[1] > maxY) maxY = pt[1];
+        });
+    });
+    
+    // Возвращаем [x, y, width, height] с небольшим округлением, чтобы игнорировать микро-сдвиги
+    return [
+        Math.round(minX * 10) / 10,
+        Math.round(minY * 10) / 10,
+        Math.round((maxX - minX) * 10) / 10,
+        Math.round((maxY - minY) * 10) / 10
+    ];
+}
+
+function findMatchingBoundIndex(targetBounds, fingerprints) {
+    var targetStr = targetBounds.join('|');
+    
+    // 1. Точное совпадение
+    var idx = fingerprints.indexOf(targetStr);
+    if (idx !== -1) return idx;
+
+    // 2. Нечеткое совпадение (если stroke inside/outside слегка меняет размер)
+    // Допускаем погрешность в пару пикселей
+    var tx = targetBounds[0], ty = targetBounds[1], tw = targetBounds[2], th = targetBounds[3];
+    
+    for (var i = 0; i < fingerprints.length; i++) {
+        var fp = fingerprints[i].split('|').map(Number);
+        if (Math.abs(fp[0] - tx) < 2 && 
+            Math.abs(fp[1] - ty) < 2 && 
+            Math.abs(fp[2] - tw) < 2 && 
+            Math.abs(fp[3] - th) < 2) {
+            return i;
+        }
+    }
+    return -1;
 }
 function parseSvg(str, transformed) {
     var paths = [];
