@@ -495,8 +495,7 @@ function getCompoundPaths(layer, computedFills, computedStrokes) {
             var pathStroke = null;
 
             if (pObj.isOutline) {
-                // ХАК: Если это Outline из strokeGeometry, 
-                // мы берем цвет ОБВОДКИ слоя, но применяем его как ЗАЛИВКУ пути.
+                // ХАК: Если это Outline из strokeGeometry...
                 if (computedStrokes && computedStrokes.length > 0) {
                     // Превращаем данные обводки в данные заливки
                     pathFill = computedStrokes.map(s => ({
@@ -504,7 +503,13 @@ function getCompoundPaths(layer, computedFills, computedStrokes) {
                         enabled: s.enabled,
                         color: s.color,
                         opacity: s.opacity,
-                        blendMode: s.blendMode
+                        blendMode: s.blendMode,
+                        
+                        // --- ДОБАВЛЕНЫ СВОЙСТВА ГРАДИЕНТА ---
+                        gradType: s.gradType,
+                        gradient: s.gradient,
+                        startPoint: s.startPoint,
+                        endPoint: s.endPoint
                     }));
                 }
                 // Обводку выключаем, так как мы уже нарисовали её форму заливкой
@@ -694,13 +699,13 @@ function getFrame(layer, parentFrame, constrainFrame) {
     var x = m[0][2] + (m[0][0] * width / 2) + (m[0][1] * height / 2);
     var y = m[1][2] + (m[1][0] * width / 2) + (m[1][1] * height / 2);
 
-    if (parentFrame) {
-        // 2. Переводим в систему координат After Effects.
-        // AE считает (0,0) в центре родителя. Figma — в левом верхнем углу.
-        // Нам нужно просто сдвинуть наши координаты на половину ширины/высоты родителя.
-        x -= parentFrame.width / 2;
-        y -= parentFrame.height / 2;
-    }
+    // if (parentFrame) {
+    //     // 2. Переводим в систему координат After Effects.
+    //     // AE считает (0,0) в центре родителя. Figma — в левом верхнем углу.
+    //     // Нам нужно просто сдвинуть наши координаты на половину ширины/высоты родителя.
+    //     x -= parentFrame.width / 2;
+    //     y -= parentFrame.height / 2;
+    // }
 
     return {
         width: width,
