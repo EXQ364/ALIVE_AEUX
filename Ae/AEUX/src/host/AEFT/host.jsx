@@ -525,7 +525,7 @@ var AEUX = (function () {
         addBgBlur(r, layer);
     }
     function aePath(layer, opt_parent) {
-        if (!layer.path || layer.path.points.length < 1) {
+        if (!layer.path && !layer.layers) {
             return;
         }
         var r = initShapeLayer(layer, opt_parent);
@@ -533,23 +533,19 @@ var AEUX = (function () {
         r(2)(1).name = layer.name;
         group(2).addProperty('ADBE Vector Shape - Group');
         var pathProp = group(2)(1).property('ADBE Vector Shape');
-        var vertices = layer.path.points;
-        if (vertices.length < 1) {
-            return;
+        if (layer.path) {
+            var pathObj = {
+                path: pathProp,
+                points: layer.path.points,
+                inTangents: layer.path.inTangents,
+                outTangents: layer.path.outTangents,
+                closed: layer.path.closed
+            };
+            createStaticShape(pathObj, [0, 0]);
         }
-        var pathObj = {
-            path: pathProp,
-            points: layer.path.points,
-            inTangents: layer.path.inTangents,
-            outTangents: layer.path.outTangents,
-            closed: layer.path.closed
-        };
-        var layerOffset = [layer.frame.width / 2, layer.frame.height / 2];
-        createStaticShape(pathObj, layerOffset);
         if (layer.roundness > 0) {
-            var rounding = Math.min(layer.roundness, Math.min(layer.frame.width, layer.frame.height) / 2);
             var round = group(2).addProperty('ADBE Vector Filter - RC');
-            round('ADBE Vector RoundCorner Radius').setValue(rounding);
+            round('ADBE Vector RoundCorner Radius').setValue(layer.roundness);
         }
         addStroke(r, layer);
         addFill(r, layer);
@@ -557,9 +553,15 @@ var AEUX = (function () {
         addBlur(r, layer);
         addInnerShadow(r, layer);
         setLayerBlendMode(r, layer);
-        r('ADBE Transform Group')('ADBE Position').setValue([layer.frame.x * compMult, layer.frame.y * compMult]);
-        group('ADBE Vector Transform Group')('ADBE Vector Rotation').setValue(layer.rotation);
-        group('ADBE Vector Transform Group')('ADBE Vector Scale').setValue([100 * compMult, 100 * compMult]);
+        r('ADBE Transform Group')('ADBE Anchor Point').setValue([
+            (layer.frame.width / 2) * compMult,
+            (layer.frame.height / 2) * compMult
+        ]);
+        r('ADBE Transform Group')('ADBE Position').setValue([
+            layer.frame.x * compMult,
+            layer.frame.y * compMult
+        ]);
+        r('ADBE Transform Group')('ADBE Rotate Z').setValue(layer.rotation);
         r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
         r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
         if (opt_parent !== null) {
@@ -586,23 +588,17 @@ var AEUX = (function () {
         addBlur(r, layer);
         addInnerShadow(r, layer);
         setLayerBlendMode(r, layer);
-        var anchorPoint = [layer.frame.width / 2, layer.frame.height / 2];
-        var vecTransform = group.property('ADBE Vector Transform Group');
-        if (vecTransform) {
-            vecTransform.property('ADBE Vector Anchor').setValue(anchorPoint);
-            vecTransform.property('ADBE Vector Position').setValue(anchorPoint);
-            vecTransform.property('ADBE Vector Scale').setValue([100 * compMult, 100 * compMult]);
-            vecTransform.property('ADBE Vector Rotation').setValue(0);
-        }
-        var layerTransform = r.property('ADBE Transform Group');
-        layerTransform.property('ADBE Anchor Point').setValue(anchorPoint);
-        layerTransform.property('ADBE Position').setValue([
+        r('ADBE Transform Group')('ADBE Anchor Point').setValue([
+            (layer.frame.width / 2) * compMult,
+            (layer.frame.height / 2) * compMult
+        ]);
+        r('ADBE Transform Group')('ADBE Position').setValue([
             layer.frame.x * compMult,
             layer.frame.y * compMult
         ]);
-        layerTransform.property('ADBE Rotate Z').setValue(layer.rotation);
-        layerTransform.property('ADBE Opacity').setValue(layer.opacity);
-        layerTransform.property('ADBE Scale').setValue(layer.flip);
+        r('ADBE Transform Group')('ADBE Rotate Z').setValue(layer.rotation);
+        r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
+        r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
         if (opt_parent !== null) {
             r.parent = opt_parent;
             r.moveAfter(opt_parent);

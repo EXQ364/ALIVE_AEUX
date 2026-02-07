@@ -827,7 +827,7 @@ function aeStar(layer, opt_parent) {
 //// path
 function aePath(layer, opt_parent) {
     // skip if no vertices
-    if (!layer.path || layer.path.points.length < 1) { return; }
+    if (!layer.path && !layer.layers) { return; } // layer.layers check added for compound fallback
 
     var r = initShapeLayer(layer, opt_parent);
 
@@ -838,29 +838,24 @@ function aePath(layer, opt_parent) {
     group(2).addProperty('ADBE Vector Shape - Group');
     // create a vector object
     var pathProp = group(2)(1).property('ADBE Vector Shape');
+    
     // get vertex data
-    var vertices = layer.path.points;
-    // skip if no vertices
-    if (vertices.length < 1) { return; }
-    // assign path data to vector object
-    var pathObj = {
-        path: pathProp,
-        points: layer.path.points,
-        inTangents: layer.path.inTangents,
-        outTangents: layer.path.outTangents,
-        closed: layer.path.closed
-    };
-    // var layerOffset = [0,0];
-    var layerOffset = [layer.frame.width/2, layer.frame.height/2];
-    // build path
-    createStaticShape(pathObj, layerOffset);
+    if (layer.path) {
+        var pathObj = {
+            path: pathProp,
+            points: layer.path.points,
+            inTangents: layer.path.inTangents,
+            outTangents: layer.path.outTangents,
+            closed: layer.path.closed
+        };
+        // Мы НЕ смещаем точки здесь, оставляем их как есть (от 0,0)
+        createStaticShape(pathObj, [0,0]);
+    }
 
-
-    /// round corners if roundness greater than 0
+    /// round corners (если есть)
     if (layer.roundness > 0) {
-        var rounding = Math.min(layer.roundness, Math.min(layer.frame.width, layer.frame.height)/2);
         var round = group(2).addProperty('ADBE Vector Filter - RC');
-            round('ADBE Vector RoundCorner Radius').setValue(rounding);
+        round('ADBE Vector RoundCorner Radius').setValue(layer.roundness);
     }
 
     /// add layer elements
@@ -871,25 +866,29 @@ function aePath(layer, opt_parent) {
     addInnerShadow(r, layer);
     setLayerBlendMode(r, layer);
 
-    // set transforms
-    // var centeredPos = [(layer.frame.x + layer.frame.width/2) * compMult, (layer.frame.y + layer.frame.height/2) * compMult];
-    // r('ADBE Transform Group')('ADBE Position').setValue( centeredPos );
-    r('ADBE Transform Group')('ADBE Position').setValue( [layer.frame.x * compMult, layer.frame.y * compMult] );
-    group('ADBE Vector Transform Group')('ADBE Vector Rotation').setValue(layer.rotation);
-    group('ADBE Vector Transform Group')('ADBE Vector Scale').setValue([100 * compMult, 100 * compMult]);
+    // --- ИСПРАВЛЕНИЕ ТРАНСФОРМАЦИЙ ---
+    
+    // 1. Anchor Point ставим в центр фигуры (width/2, height/2)
+    // Это заставит AE вращать фигуру вокруг её центра, как в Figma.
+    r('ADBE Transform Group')('ADBE Anchor Point').setValue([
+        (layer.frame.width / 2) * compMult, 
+        (layer.frame.height / 2) * compMult
+    ]);
+
+    // 2. Position (Figma уже присылает координаты центра, так что это корректно)
+    r('ADBE Transform Group')('ADBE Position').setValue([
+        layer.frame.x * compMult, 
+        layer.frame.y * compMult
+    ]);
+
+    // 3. Остальные трансформы
+    r('ADBE Transform Group')('ADBE Rotate Z').setValue(layer.rotation);
     r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
     r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
     
-    /// if the group layer has a parent
+    // Parenting
     if (opt_parent !== null) {
-      // set the parent
-      // if (hostApp == 'Sketch') {
-          r.parent = opt_parent;
-      // } else {
-      //     r.parent = opt_parent;
-      //     // r.parent = opt_parent;
-      // }
-      // move the layer after the parent
+      r.parent = opt_parent;
       r.moveAfter(opt_parent);
     }
 
@@ -901,20 +900,13 @@ function aePath(layer, opt_parent) {
 function aeCompound(layer, opt_parent) {
     var r = initShapeLayer(layer, opt_parent);
 
-    // Получаем Root Contents слоя (ADBE Root Vectors Group)
     var rootContents = r.property("ADBE Root Vectors Group");
-    
-    /// Создаем основную группу
     var group = rootContents.addProperty('ADBE Vector Group');
     group.name = layer.name;
 
-    // Рекурсивно создаем содержимое
     createCompoundShapes(group, layer);
 
-    // Получаем Contents группы безопасно
     var groupContents = getContents(group);
-
-    /// Merge Paths
     if (groupContents) {
         var existingMerge = groupContents.property('ADBE Vector Filter - Merge');
         if (!existingMerge) { 
@@ -927,28 +919,23 @@ function aeCompound(layer, opt_parent) {
     addInnerShadow(r, layer);
     setLayerBlendMode(r, layer);
 
-    // --- TRANSFORMS ---
-    var anchorPoint = [layer.frame.width / 2, layer.frame.height / 2];
+    // --- ИСПРАВЛЕНИЕ ТРАНСФОРМАЦИЙ ---
     
-    // Transform самой группы (ADBE Vector Transform Group)
-    var vecTransform = group.property('ADBE Vector Transform Group');
-    if (vecTransform) {
-        vecTransform.property('ADBE Vector Anchor').setValue(anchorPoint);
-        vecTransform.property('ADBE Vector Position').setValue(anchorPoint);
-        vecTransform.property('ADBE Vector Scale').setValue([100 * compMult, 100 * compMult]);
-        vecTransform.property('ADBE Vector Rotation').setValue(0);
-    }
+    // 1. Anchor Point в центр
+    r('ADBE Transform Group')('ADBE Anchor Point').setValue([
+        (layer.frame.width / 2) * compMult, 
+        (layer.frame.height / 2) * compMult
+    ]);
     
-    // Transform слоя
-    var layerTransform = r.property('ADBE Transform Group');
-    layerTransform.property('ADBE Anchor Point').setValue(anchorPoint);
-    layerTransform.property('ADBE Position').setValue([
+    // 2. Position (Координаты центра из Figma)
+    r('ADBE Transform Group')('ADBE Position').setValue([
         layer.frame.x * compMult, 
         layer.frame.y * compMult
     ]);
-    layerTransform.property('ADBE Rotate Z').setValue(layer.rotation);
-    layerTransform.property('ADBE Opacity').setValue(layer.opacity);
-    layerTransform.property('ADBE Scale').setValue(layer.flip);
+
+    r('ADBE Transform Group')('ADBE Rotate Z').setValue(layer.rotation);
+    r('ADBE Transform Group')('ADBE Opacity').setValue(layer.opacity);
+    r('ADBE Transform Group')('ADBE Scale').setValue(layer.flip);
     
     if (opt_parent !== null) {
         r.parent = opt_parent;
