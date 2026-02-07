@@ -200,6 +200,17 @@ var AEUX = (function () {
             }
         }
     }
+    function getFont(fontFamily, fontStyle) {
+        var list = app.fonts.getFontsByFamilyNameAndStyleName(fontFamily, fontStyle);
+        if (list && list.length > 0) {
+            return list[0];
+        }
+        else {
+            alert("Шрифт " + fontFamily + " (" + fontStyle + ") не найден. Использую шрифт по умолчанию.");
+            return app.fonts.defaultFont;
+        }
+    }
+    alert(app.fonts.allFonts.length);
     function aeText(layer, opt_parent) {
         var justificationOffset = 0;
         var r;
@@ -217,7 +228,7 @@ var AEUX = (function () {
             var textDoc = textProp.value;
             textDoc.resetCharStyle();
             textDoc.resetParagraphStyle();
-            textDoc.font = layer.fontName;
+            textDoc.font = getFont(layer.fontName.family, layer.fontName.style);
             textDoc.fontSize = layer.fontSize;
             var fill = [layer.textColor[0], layer.textColor[1], layer.textColor[2]];
             var opacity = layer.textColor[3];

@@ -178,7 +178,7 @@ function getText(layer, parentFrame) {
         x: tempFrame.x,
         y: finalY,
     };
-    
+    console.log("Font name:", layer.fontName);
 	var layerData =  {
         type: 'Text',
         kind: 'Area',
@@ -193,7 +193,7 @@ function getText(layer, parentFrame) {
         stroke: getStrokes(layer),
         blendMode: getLayerBlending(layer.blendMode),
         // fontName: layer.style.fontPostScriptName,
-        fontName: triclops.getPostscript(layer.fontName),
+        fontName: layer.fontName,//triclops.getPostscript(layer.fontName),
         // fontName: layer.fontName.family.replaceAll(' ', '') + '-' + layer.fontName.style.replaceAll(' ', ''),
         fontSize: layer.fontSize,
         // trackingAdjusted: layer.style.letterSpacing / layer.style.fontSize * 1000,

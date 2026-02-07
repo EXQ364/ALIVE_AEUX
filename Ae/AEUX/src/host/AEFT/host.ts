@@ -234,8 +234,21 @@ function filterTypes(layerData, opt_parent?) {
     }
 }
 
-
-
+function getFont(fontFamily, fontStyle) {
+    // 1. Пытаемся найти массив подходящих шрифтов
+    var list = app.fonts.getFontsByFamilyNameAndStyleName(fontFamily, fontStyle);
+    
+    // 2. Проверяем, что массив существует и не пуст
+    if (list && list.length > 0) {
+        return list[0]; 
+    } else {
+        // 3. Если не нашли, выводим предупреждение и возвращаем дефолтный шрифт
+        // Это гарантирует, что функция всегда вернет объект Font
+        alert("Шрифт " + fontFamily + " (" + fontStyle + ") не найден. Использую шрифт по умолчанию.");
+        return app.fonts.defaultFont;
+    }
+}
+alert(app.fonts.allFonts.length);
 ///////// create layers /////////
 
 //// text
@@ -277,8 +290,9 @@ function aeText(layer, opt_parent) {
     textDoc.resetCharStyle();
     textDoc.resetParagraphStyle();
 
+    
     // set font and size
-    textDoc.font = layer.fontName;
+    textDoc.font = getFont(layer.fontName.family, layer.fontName.style);
     textDoc.fontSize = layer.fontSize;
 
     /// set fill color
