@@ -210,7 +210,6 @@ var AEUX = (function () {
             return app.fonts.defaultFont;
         }
     }
-    alert(app.fonts.allFonts.length);
     function aeText(layer, opt_parent) {
         var justificationOffset = 0;
         var r;

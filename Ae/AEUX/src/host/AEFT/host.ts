@@ -248,7 +248,7 @@ function getFont(fontFamily, fontStyle) {
         return app.fonts.defaultFont;
     }
 }
-alert(app.fonts.allFonts.length);
+// alert(app.fonts.allFonts.length);
 ///////// create layers /////////
 
 //// text
