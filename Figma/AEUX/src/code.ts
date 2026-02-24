@@ -149,20 +149,23 @@ figma.ui.onmessage = message => {
         function asyncCollectHashes(id, cb) {
             setTimeout(() => {
                 // console.log('done with', item);
-                let shape = (figma.getNodeById(id) as any)
+                let shape = figma.getNodeById(id) // as any - если используете TypeScript
 
                 // disable effects
                 let effectVisList = []      // to store the effect visibility
                 let effects
                 if (shape.effects) {
-                    effects = clone(shape.effects)
-                    effects.forEach(effect => {         // turn them all off
-                        effectVisList.push(effect.visible)
+                    // Используем безопасное клонирование вместо JSON.parse/stringify,
+                    // так как в эффектах могут быть смешанные свойства
+                    effects = shape.effects.map(effect => {
+                        const newEffect = JSON.parse(JSON.stringify(effect));
+                        effectVisList.push(effect.visible);
                         if (effect.type == 'DROP_SHADOW' || effect.type == 'LAYER_BLUR') {
-                            effect.visible = false
+                            newEffect.visible = false;
                         }
-                    })
-                    shape.effects = effects
+                        return newEffect;
+                    });
+                    shape.effects = effects;
                 }
 
                 let compMult = 3
@@ -177,19 +180,31 @@ figma.ui.onmessage = message => {
                     .then(img => {
                         imageHashList.push({
                             hash: figma.createImage(img).hash,
-                            id: `${shape.name.replace(/^\*\s/, '').replace(/^\*/, '')}_${id}`
+                            // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+                            // Было: id: `${shape.name...}_${id}`
+                            // Стало: просто id. Это обеспечит совпадение имен с aeux.js
+                            id: id 
                         })
                     })
                     .then(() => {
                         // re-enable effects 
-                        for (let i = 0; i < effectVisList.length; i++) {
-                            effects[i].visible = effectVisList[i]
+                        if (effects) {
+                            // Восстанавливаем видимость
+                            const restoredEffects = shape.effects.map((effect, i) => {
+                                const newEffect = JSON.parse(JSON.stringify(effect));
+                                newEffect.visible = effectVisList[i];
+                                return newEffect;
+                            });
+                            shape.effects = restoredEffects;
                         }
-                        shape.effects = effects
                     })
                     .then(() => {
                         cb();
                     })
+                    .catch(err => {
+                        console.log('Export error', err);
+                        cb(); // Все равно вызываем callback, чтобы не зависнуть
+                    });
 
 
             }, 100);
@@ -240,214 +255,174 @@ figma.ui.onmessage = message => {
     // console.log('send message back to ui');
 }
 
+// --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ УМНОГО ФЛАТТЕНА ---
+function isVectorIconWithMask(node) {
+    if (node.type !== 'GROUP' && node.type !== 'FRAME') return false;
+    if (!node.children || node.children.length === 0) return false;
 
+    let hasMask = false;
+    let hasTextOrImage = false;
+
+    for (const child of node.children) {
+        if (child.isMask) hasMask = true;
+        if (child.type === 'TEXT' || child.type === 'INSTANCE' || child.type === 'COMPONENT') {
+            hasTextOrImage = true;
+        }
+        if (child.fills && Array.isArray(child.fills)) {
+            for (const fill of child.fills) {
+                if (fill.type === 'IMAGE') hasTextOrImage = true;
+            }
+        }
+    }
+    return hasMask && !hasTextOrImage;
+}
+
+// --- ОСНОВНАЯ ФУНКЦИЯ ПАРСИНГА ---
 function nodeToObj(nodes) {
-    //   console.log('nodes', nodes);
+    if (!nodes || nodes.length < 1) { return []; }
 
-    if (nodes.length < 1) { return [] }
-
-
-    // console.log(nodes[0].type);
     let arr = [];
 
-    // look for the parent frame of everything except regular (non-autoLayout) frames and loose components
     if (nodes[0] && (
-        (nodes[0].type === 'FRAME' && nodes[0].parent.type === 'PAGE') ||
-        // (nodes[0].type === 'FRAME' && nodes[0].layoutMode === 'NONE') || 
-        (nodes[0].type === 'COMPONENT' && nodes[0].parent.type === 'PAGE'))) {            // a frame or a component master outside of a frame is directly selected
-
-        console.log('GOT A FRAME');
-        // console.log(nodes[0].children);
-        hasFrameData = true     // dont need to get the frame data
+        (nodes[0].type === 'FRAME' && nodes[0].parent && nodes[0].parent.type === 'PAGE') ||
+        (nodes[0].type === 'COMPONENT' && nodes[0].parent && nodes[0].parent.type === 'PAGE'))) {
+        
+        hasFrameData = true;
         shapeTree.push(getElement(nodes[0], false));
-        nodes = nodes[0].children
+        nodes = nodes[0].children;
+        
+        if (!nodes || nodes.length < 1) { return arr; }
     }
 
-    // get shapes 
-    if (nodes.length < 1) { return [] }
     nodes.forEach(node => {
-        // get the frame data
-
         if (!hasFrameData) {
-            if (node.parent.type === 'PAGE') { return }     // layer is outside of a frame 
-
-            // console.log('get the frame data');
+            if (node.parent && node.parent.type === 'PAGE') { return; }
             let frame = findFrame(node);
-
-            // console.log('frame:', frame);
-            let frameData = getElement(frame, true);    // skip gathering children data
-            frameData.children = [];                    // clear the children of the frame to push them later
-
-            shapeTree.push(frameData);
+            if (frame) {
+                let frameData = getElement(frame, true);
+                frameData.children = [];
+                shapeTree.push(frameData);
+            }
         }
 
-        let obj = getElement(node, false)
-
+        let obj = getElement(node, false);
         arr.push(obj);
     });
-    // console.log('arr: ', arr);
 
     return arr;
 
-
-
     function getElement(node, skipChildren) {
-        // console.log('node', node.name);
-
-        let rasterize = false
+        let rasterize = false;
         let obj = {
             children: [],
             type: null,
         };
+
+        // Проверка на растрирование (PNG)
         if (node.name && node.name.charAt(0) == '*' && node != findFrame(node)) {
-            console.log('rasterize', node);
-            rasterizeList.push(node.id)
-            rasterize = true
+            rasterizeList.push(node.id);
+            rasterize = true;
         }
 
         for (const key in node) {
             try {
-
-
                 let element = node[key];
-                // console.log(element);
 
-                if (key === 'children' && !skipChildren && !rasterize) { element = nodeToObj(element) }
-                if (key === 'backgrounds') { element = nodeToObj(element) }
-                if (key === 'fills' && element.length > 0) {        // add image fills to rasterizeList
-                    let hasImageFill = false
-                    for (const i in element) {
-                        const fill = element[i];
-                        if (fill.type == 'IMAGE') {
-                            hasImageFill = true
-                            obj['rasterize'] = true
-                            // console.log('image', element);
-                            // obj.type = 'RECTANGLE'
-                            // return
-                        }
+                if (key === 'parent' || key === 'masterComponent' || key === 'removed') continue;
+
+                if (key === 'children') {
+                    if (!skipChildren && !rasterize) {
+                        element = nodeToObj(element);
+                    } else {
+                        element = []; 
                     }
-                    if (hasImageFill) { rasterizeList.push(node.id) }
                 }
 
-                // corner radius
-                // if (key === 'cornerRadius') {
-                //     console.log(key,  element);
+                if (key === 'backgrounds') { element = nodeToObj(element); }
 
-                // }
+                if (key === 'fills' && Array.isArray(element) && element.length > 0) {
+                    let hasImageFill = false;
+                    for (const i in element) {
+                        if (element[i].type == 'IMAGE') {
+                            hasImageFill = true;
+                            obj['rasterize'] = true;
+                        }
+                    }
+                    if (hasImageFill) { rasterizeList.push(node.id); } 
+                }
+
                 if (element == figma.mixed && key === 'cornerRadius') {
                     element = Math.min(node.topLeftRadius, node.topRightRadius, node.bottomLeftRadius, node.bottomRightRadius);
                 }
 
-                // try to get the first value on the text
                 if (element == figma.mixed) {
-                    let str = 'getRange' + key.replace(/^\w/, c => c.toUpperCase())
-                    try {
-                        element = node[str](0, 1)
-                    } catch (error) {
-                        continue
-                    }
+                    let str = 'getRange' + key.replace(/^\w/, c => c.toUpperCase());
+                    try { element = node[str](0, 1); } catch (e) { continue; }
                 }
 
-                // layer.fontName !== (figma.mixed)) ? layer.fontName.family : layer.getRangeFontName(0,1).family
-                // if (key === 'parent') { console.log(element); }
+                // Защита от краша Cannot unwrap symbol
+                if (typeof element === 'symbol' || element === figma.mixed) {
+                    continue;
+                }
 
                 obj[key] = element;
 
             } catch (error) {
-                console.log('ERROR', error);
-
+                // Игнорируем
             }
         }
+
+        // --- ГЕОМЕТРИЯ ---
         if (node.type === 'VECTOR' || node.type === 'BOOLEAN_OPERATION' || node.type === 'STAR' || node.type === 'POLYGON' || node.type === 'ELLIPSE') {
-            // fillGeometry содержит SVG Path Data с кривыми
-            if ('fillGeometry' in node && node.fillGeometry.length > 0) {
+            if (node.fillGeometry && node.fillGeometry.length > 0) {
                 obj['fillGeometry'] = node.fillGeometry;
             }
-            // На случай, если это обводка без заливки
-            if ('strokeGeometry' in node && node.strokeGeometry.length > 0) {
+            if (node.strokeGeometry && node.strokeGeometry.length > 0) {
                 obj['strokeGeometry'] = node.strokeGeometry;
             }
         }
+
+        // --- ТЕКСТ И ОТСТУПЫ ---
         if (node.type === 'TEXT') {
-            // --- 1. Расчет Line Height (оставляем как было) ---
-            //@ts-ignore
-            obj._calcLineHeight = null;
-
-            if (node.lineHeight.unit === 'PIXELS') {
-                //@ts-ignore
-                obj._calcLineHeight = node.lineHeight.value;
-            } else if (node.lineHeight.unit === 'PERCENT') {
-                //@ts-ignore
-                obj._calcLineHeight = node.fontSize * (node.lineHeight.value / 100);
-            } else {
-                // AUTO
-                const isSingleLine = node.characters.indexOf('\n') === -1;
-                const isAutoHeight = node.textAutoResize === 'HEIGHT' || node.textAutoResize === 'WIDTH_AND_HEIGHT';
-                if (isSingleLine && isAutoHeight) {
-                    //@ts-ignore
-                    obj._calcLineHeight = node.height;
-                } else {
-                    //@ts-ignore
-                    obj._calcLineHeight = node.fontSize * 1.2;
-                }
-            }
-
-            let calculatedOffset = 0;
-
-            try {
-                // Проверяем, есть ли текст, чтобы не уронить плагин
-                if (node.characters && node.characters.trim().length > 0) {
-                    
-                    const clone = node.clone();
-                    
-                    // ВАЖНО: Выкидываем клон в корень страницы, чтобы убрать влияние групп/фреймов
-                    figma.currentPage.appendChild(clone);
-                    
-                    // Сбрасываем трансформации, чтобы измерять чистую геометрию
-                    clone.rotation = 0;
-                    clone.x = 0;
-                    clone.y = 0;
-
-                    // Запоминаем, где стоит верх текстового контейнера (в идеале это 0)
-                    const textTop = clone.absoluteBoundingBox.y;
-
-                    // Превращаем в кривые
-                    const flat = figma.flatten([clone]);
-                    
-                    // Смотрим, где оказалась верхняя точка кривых (букв)
-                    const vectorTop = flat.absoluteBoundingBox.y;
-
-                    // Разница — это пустота сверху
-                    calculatedOffset = vectorTop - textTop;
-
-                    // Убираем мусор
-                    flat.remove();
-                }
-            } catch (error) {
-                console.log('Geometry calc error', error);
-                calculatedOffset = 0;
-            }
-
-            //@ts-ignore
-            obj['_metricTopOffset'] = calculatedOffset;
+             //@ts-ignore
+             obj._calcLineHeight = null;
+             if (node.lineHeight && node.lineHeight.unit === 'PIXELS') {
+                 obj._calcLineHeight = node.lineHeight.value;
+             } else if (node.lineHeight && node.lineHeight.unit === 'PERCENT') {
+                 obj._calcLineHeight = node.fontSize * (node.lineHeight.value / 100);
+             } else {
+                 const isSingleLine = node.characters.indexOf('\n') === -1;
+                 const isAutoHeight = node.textAutoResize === 'HEIGHT' || node.textAutoResize === 'WIDTH_AND_HEIGHT';
+                 if (isSingleLine && isAutoHeight) {
+                     obj._calcLineHeight = node.height;
+                 } else {
+                     obj._calcLineHeight = node.fontSize * 1.2;
+                 }
+             }
+             
+             let calculatedOffset = 0;
+             try {
+                 if (node.characters && node.characters.trim().length > 0) {
+                     const clone = node.clone();
+                     figma.currentPage.appendChild(clone);
+                     clone.rotation = 0; clone.x = 0; clone.y = 0;
+                     const textTop = clone.absoluteBoundingBox.y;
+                     const flat = figma.flatten([clone]);
+                     const vectorTop = flat.absoluteBoundingBox.y;
+                     calculatedOffset = vectorTop - textTop;
+                     flat.remove();
+                 }
+             } catch (error) { calculatedOffset = 0; }
+             
+             //@ts-ignore
+             obj['_metricTopOffset'] = calculatedOffset;
         }
 
-        // keep track of Auto-layout frames for alignment of children
-        if (node.type === 'FRAME' && node.layoutMode !== 'NONE') { obj.type = 'AUTOLAYOUT' }
+        // --- AUTOLAYOUT ---
+        if (node.type === 'FRAME' && node.layoutMode !== 'NONE') { obj.type = 'AUTOLAYOUT'; }
 
         return obj;
     }
-
-    function collectImageHashes(element, id) {
-        // console.log('imageHash', id, element);
-        for (const i in element) {
-            const fill = element[i];
-            if (fill.type == 'IMAGE') {
-                imageHashList.push({ hash: fill.imageHash, id })
-            }
-        }
-    }
-
 }
 
 async function storeImageData(imageHashList, layers, refImg) { // imageHashList should be fiiled but isnt

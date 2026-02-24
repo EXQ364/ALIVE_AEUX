@@ -773,7 +773,7 @@ function getFills(layer, parentFrame) {
 
     var fillData = [];
     var fills = layer.fills;
-    var size = [layer.width, layer.height];
+    // var size = [layer.width, layer.height];
 
     // loop through all fills
     for (var i = 0; i < fills.length; i++) {
@@ -811,8 +811,11 @@ function getFills(layer, parentFrame) {
                 
             // fill is an image or texture
             } else if (fill.type == 'IMAGE' && !layer.isMask) {
-                fillData = getImageFill(layer, parentFrame);
-                break;
+                // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+                // Было: fillData = getImageFill(layer, parentFrame);
+                // Стало (оборачиваем в массив):
+                fillData = [ getImageFill(layer, parentFrame) ];
+                break; // Выходим из цикла, так как картинка заменяет собой всё
             // fill is a solid
             } else {                    
                 var color = colorObjToArray(fill);                    
@@ -827,8 +830,11 @@ function getFills(layer, parentFrame) {
                 }
             }
 
-            // add obj string to array
-            fillData.push(fillObj);
+            // Добавляем объект в массив только если это НЕ картинка
+            // (для картинки мы уже перезаписали fillData и сделали break)
+            if (!(fill.type == 'IMAGE' && !layer.isMask)) {
+                fillData.push(fillObj);
+            }
         }
     }
     return fillData;
