@@ -49,10 +49,9 @@ function filterTypes(figmaData, opt_parentFrame, boolType) {
         }
 
         if (layer.type == "GROUP") {            
-            let prevMask = (aeuxData.length > 0) ? aeuxData[aeuxData.length - 1].isMask : false    // check if the previous layer is a mask
+            let prevMask = (aeuxData && aeuxData.length > 0) ? aeuxData[aeuxData.length - 1].isMask : false    // check if the previous layer is a mask
             aeuxData.push(getGroup(layer, parentFrame, prevMask));
         }
-        // if (layer.fillGeometry && layer.fillGeometry.length > 1) { layer.type = "BOOLEAN_OPERATION" }         // overwrite the layer type
 
         if (layer.type == "BOOLEAN_OPERATION") {
             let boolLayer = getBoolean(layer, parentFrame, boolType);
@@ -216,7 +215,7 @@ function getText(layer, parentFrame) {
         var fills = getFills(layer, null)
         // console.log(fills);
         
-        if (fills.length > 0) {
+        if (fills != null && fills.length > 0) {
             var fillColor = fills[0].color
             if (fills[0].gradient != undefined) {
                 fillColor = fills[0].gradient.points[0].color
@@ -388,7 +387,7 @@ function getComponent(layer, parentFrame) {
         // reset vars
         var overrideList = [];
         var overrides = layer.overrides;
-
+        if(!overrides) return;
         // loop through each override on the layer
         for (var i = 0; i < overrides.length; i++) {
             var override = overrides[i];
@@ -402,6 +401,7 @@ function getComponent(layer, parentFrame) {
                 //     overrideList = [];                  // reset the list
                 //     i = 0;                              // reset the count
                 // }
+                if(!symbolObj) return;
 
                 // loop through all layers in the symbol
                 for (var j = 0; j < symbolObj.layers.length; j++) {
@@ -505,6 +505,7 @@ function getCompoundPaths(layer, computedFills, computedStrokes) {
 
     if (layer._aeuxParsedPaths) {
         var parsed = layer._aeuxParsedPaths;
+        if(!parsed) return;
         
         for (var i = 0; i < parsed.length; i++) {
             var pObj = parsed[i];
@@ -569,6 +570,8 @@ function getEffects(layer, layerData) {
     layerData.shadow = [];
     layerData.innerShadow = [];
     layerData.blur = [];
+
+    if(!layer.effects) return;
 
     if (layer.effects.length > 0) {
         for (var i = 0; i < layer.effects.length; i++) {
@@ -777,7 +780,7 @@ function getFills(layer, parentFrame) {
     var fillData = [];
     var fills = layer.fills;
     // var size = [layer.width, layer.height];
-
+    if(!fills) return;
     // loop through all fills
     for (var i = 0; i < fills.length; i++) {
         var fill = fills[i];
@@ -902,7 +905,7 @@ function getStrokes(layer) {
 	var strokeData = [];
     var strokes = layer.strokes;
     // var size = [layer.width, layer.height]; // кажется, не используется в этом сниппете, но оставим если нужно
-
+    if(!strokes) return;
     // loop through all strokes
     for (var i = 0; i < strokes.length; i++) {
         var stroke = strokes[i];
@@ -985,7 +988,7 @@ function getGradient(grad) {
         length: grad.length,
         points: []
     };
-
+    if(!gradObj) return;
     for (var i = 0; i < gradObj.length; i++) {
         var colorArr = colorObjToArray(grad[i]);
         gradObj.points.push({
@@ -1198,6 +1201,7 @@ function getPath(layer, bounding) {
     // --- 1. FILL GEOMETRY ---
     if (layer.fillGeometry && layer.fillGeometry.length > 0) {
         var fillPaths = layer.fillGeometry;
+        if(!fillPaths) return;
         for (var i = 0; i < fillPaths.length; i++) {
             var d = fillPaths[i].data;
             if (!d) continue;
@@ -1220,6 +1224,7 @@ function getPath(layer, bounding) {
     // --- 2. STROKE GEOMETRY ---
     if (layer.strokeGeometry && layer.strokeGeometry.length > 0) {
         var strokePaths = layer.strokeGeometry;
+        if(!strokePaths) return;
         for (var i = 0; i < strokePaths.length; i++) {
             var d = strokePaths[i].data;
             if (!d) continue;
@@ -1257,6 +1262,7 @@ function getPath(layer, bounding) {
     // --- 3. VECTOR PATHS (Fallback) ---
     if (combinedData.length === 0 && layer.vectorPaths && layer.vectorPaths.length > 0) {
         var vPaths = Array.isArray(layer.vectorPaths) ? layer.vectorPaths : [layer.vectorPaths];
+        if(!vPaths) return;
         for (var i = 0; i < vPaths.length; i++) {
             var d = vPaths[i].data || vPaths[i];
             var isClosed = (d.indexOf('Z') > -1 || d.indexOf('z') > -1);
@@ -1275,10 +1281,11 @@ function getPath(layer, bounding) {
     // ВАЖНО: Мы убрали вычисление globalMinX/Y и сдвиг координат.
     // Координаты fillGeometry/strokeGeometry уже локальны для слоя.
     // After Effects (через host.ts) сам центрирует их относительно Anchor Point.
+    if(!combinedData) return;
 
     for (var i = 0; i < combinedData.length; i++) {
         var svgResult = parseSvg(combinedData[i].data, false);
-        
+        if(!svgResult) return;
         for (var p = 0; p < svgResult.length; p++) {
             svgResult[p].renderFill = combinedData[i].isFill;
             svgResult[p].renderStroke = combinedData[i].isStroke;
@@ -1291,7 +1298,7 @@ function getPath(layer, bounding) {
         }
     }
 
-    if (parsedPaths.length > 1) {
+    if (parsedPaths && parsedPaths.length > 1) {
         layer._aeuxParsedPaths = parsedPaths;
         return 'multiPath';
     }
@@ -1442,6 +1449,7 @@ function parseSvg(str, transformed) {
             }
             // Z - Close
             else if (cmdUpper === 'Z') {
+                if (!currentPath) continue; // Защита от пустых путей вместо обрыва функции
                 currentPath.closed = true;
                 // Merge first and last if they are same
                 if (currentPath.points.length > 1) {
@@ -1481,6 +1489,7 @@ function parseSvg(str, transformed) {
     // Apply global offset to zero-out the path in its own frame
     if (transformed && minX !== Infinity) {
         paths.forEach(p => {
+            if(!p.points) return;
             for (var j = 0; j < p.points.length; j++) {
                 p.points[j][0] -= minX;
                 p.points[j][1] -= minY;
@@ -1488,7 +1497,7 @@ function parseSvg(str, transformed) {
         });
     }
 
-    return paths.length > 0 ? paths : [{ points: [], inTangents: [], outTangents: [], closed: false }];
+    return (paths && paths.length > 0) ? paths : [{ points: [], inTangents: [], outTangents: [], closed: false }];
 }
 
 function getFlipMultiplier(layer) {
