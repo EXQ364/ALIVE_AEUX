@@ -682,8 +682,11 @@ function getFrame(layer, parentFrame, constrainFrame) {
                 width: localWidth,
                 height: localHeight,
                 // Смещаем центр: от (0,0) родителя к (width/2, height/2) родителя
-                x: centerX - (parentFrame.width / 2),
-                y: centerY - (parentFrame.height / 2)
+                // x: centerX - (parentFrame.width / 2),
+                // y: centerY - (parentFrame.height / 2)
+
+                x: centerX,
+                y: centerY
             };
         }
 
