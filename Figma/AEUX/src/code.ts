@@ -183,7 +183,7 @@ figma.ui.onmessage = message => {
                             // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
                             // Было: id: `${shape.name...}_${id}`
                             // Стало: просто id. Это обеспечит совпадение имен с aeux.js
-                            id: id 
+                            id: id
                         })
                     })
                     .then(() => {
@@ -286,11 +286,11 @@ function nodeToObj(nodes) {
     if (nodes[0] && (
         (nodes[0].type === 'FRAME' && nodes[0].parent && nodes[0].parent.type === 'PAGE') ||
         (nodes[0].type === 'COMPONENT' && nodes[0].parent && nodes[0].parent.type === 'PAGE'))) {
-        
+
         hasFrameData = true;
         shapeTree.push(getElement(nodes[0], false));
         nodes = nodes[0].children;
-        
+
         if (!nodes || nodes.length < 1) { return arr; }
     }
 
@@ -334,7 +334,7 @@ function nodeToObj(nodes) {
                     if (!skipChildren && !rasterize) {
                         element = nodeToObj(element);
                     } else {
-                        element = []; 
+                        element = [];
                     }
                 }
 
@@ -348,7 +348,7 @@ function nodeToObj(nodes) {
                             obj['rasterize'] = true;
                         }
                     }
-                    if (hasImageFill) { rasterizeList.push(node.id); } 
+                    if (hasImageFill) { rasterizeList.push(node.id); }
                 }
 
                 if (element == figma.mixed && key === 'cornerRadius') {
@@ -384,38 +384,63 @@ function nodeToObj(nodes) {
 
         // --- ТЕКСТ И ОТСТУПЫ ---
         if (node.type === 'TEXT') {
-             //@ts-ignore
-             obj._calcLineHeight = null;
-             if (node.lineHeight && node.lineHeight.unit === 'PIXELS') {
-                 obj._calcLineHeight = node.lineHeight.value;
-             } else if (node.lineHeight && node.lineHeight.unit === 'PERCENT') {
-                 obj._calcLineHeight = node.fontSize * (node.lineHeight.value / 100);
-             } else {
-                 const isSingleLine = node.characters.indexOf('\n') === -1;
-                 const isAutoHeight = node.textAutoResize === 'HEIGHT' || node.textAutoResize === 'WIDTH_AND_HEIGHT';
-                 if (isSingleLine && isAutoHeight) {
-                     obj._calcLineHeight = node.height;
-                 } else {
-                     obj._calcLineHeight = node.fontSize * 1.2;
-                 }
-             }
-             
-             let calculatedOffset = 0;
-             try {
-                 if (node.characters && node.characters.trim().length > 0) {
-                     const clone = node.clone();
-                     figma.currentPage.appendChild(clone);
-                     clone.rotation = 0; clone.x = 0; clone.y = 0;
-                     const textTop = clone.absoluteBoundingBox.y;
-                     const flat = figma.flatten([clone]);
-                     const vectorTop = flat.absoluteBoundingBox.y;
-                     calculatedOffset = vectorTop - textTop;
-                     flat.remove();
-                 }
-             } catch (error) { calculatedOffset = 0; }
-             
-             //@ts-ignore
-             obj['_metricTopOffset'] = calculatedOffset;
+            //@ts-ignore
+            obj._calcLineHeight = null;
+            if (node.lineHeight && node.lineHeight.unit === 'PIXELS') {
+                obj._calcLineHeight = node.lineHeight.value;
+            } else if (node.lineHeight && node.lineHeight.unit === 'PERCENT') {
+                obj._calcLineHeight = node.fontSize * (node.lineHeight.value / 100);
+            } else {
+                // Расчет точной AUTO высоты одной строки (на базе метрик самого шрифта Figma)
+                try {
+                    if (node.textAutoResize === 'WIDTH_AND_HEIGHT') {
+                        // Если ширина авто, текст не переносится сам. Строки создаются только через Enter (\n)
+                        const linesCount = node.characters.split('\n').length;
+                        obj._calcLineHeight = node.height / linesCount;
+                    } else {
+                        // Текст переносится по ширине (HEIGHT или NONE).
+                        // Клонируем ноду, чтобы "вытянуть" текст в одну линию и измерить его реальную высоту.
+                        const clone = node.clone();
+
+                        // Чтобы высота автоматически поджалась под одну строку, ставим HEIGHT
+                        if (clone.textAutoResize === 'NONE') {
+                            clone.textAutoResize = 'HEIGHT';
+                        }
+
+                        // Делаем ширину гигантской, чтобы автоматические переносы исчезли
+                        clone.resize(100000, clone.height);
+
+                        // Теперь текст разбит на строки только там, где есть реальный \n
+                        const linesCount = clone.characters.split('\n').length;
+
+                        // Высота клона теперь равна точной сумме высот (с учетом реального Auto Line Height)
+                        obj._calcLineHeight = clone.height / linesCount;
+
+                        clone.remove();
+                    }
+                } catch (error) {
+                    // Фолбэк на крайний случай, если клонирование или изменение textAutoResize упадет
+                    // (например, если шрифт не был асинхронно загружен перед экспортом)
+                    obj._calcLineHeight = node.fontSize * 1.2;
+                }
+            }
+
+            let calculatedOffset = 0;
+            try {
+                if (node.characters && node.characters.trim().length > 0) {
+                    const clone = node.clone();
+                    figma.currentPage.appendChild(clone);
+                    clone.rotation = 0; clone.x = 0; clone.y = 0;
+                    const textTop = clone.absoluteBoundingBox.y;
+                    const flat = figma.flatten([clone]);
+                    const vectorTop = flat.absoluteBoundingBox.y;
+                    calculatedOffset = vectorTop - textTop;
+                    flat.remove();
+                }
+            } catch (error) { calculatedOffset = 0; }
+
+            //@ts-ignore
+            obj['_metricTopOffset'] = calculatedOffset;
         }
 
         // --- AUTOLAYOUT ---
