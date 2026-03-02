@@ -956,6 +956,7 @@ function aeCompound(layer, opt_parent) {
         var targetContents = getContents(targetGroup);
         if (!targetContents) return;
 
+        // 1. Сначала добавляем только голые контуры (БЕЗ заливок)
         for (var i = 0; i < layerCount; i++) {
             var shape = layerData.layers[i];
             if (!shape) continue;
@@ -1001,11 +1002,33 @@ function aeCompound(layer, opt_parent) {
                     var round = workContents.addProperty('ADBE Vector Filter - RC');
                     if (round) round.property('ADBE Vector RoundCorner Radius').setValue(shape.roundness);
                 }
-                if (shape.fill && shape.fill.length > 0) addFillToGroup(workGroup, shape.fill);
-                if (shape.stroke && shape.stroke.length > 0) addStrokeToGroup(workGroup, shape.stroke);
             }
-            if (i == layerCount - 1 && layerData.booleanOperation > -1) addMerge(targetGroup, layerData.booleanOperation);
         }
+
+        // 2. Добавляем оператор Merge Paths для вырезания дырок
+        if (layerData.booleanOperation > -1) {
+            addMerge(targetGroup, layerData.booleanOperation);
+        } else {
+            // Если это просто сплющенная иконка (Flatten), заставляем AE
+            // применять режим Exclude Intersections (5), который идеально вырезает дырки.
+            addMerge(targetGroup, 3); // 3 + 2 = 5
+        }
+
+        // 3. Достаем заливку и обводку
+        var compFills = layerData.fill;
+        var compStrokes = layerData.stroke;
+
+        // В AEUX составные пути часто теряют заливку родителя, поэтому берем ее у первого ребенка
+        if ((!compFills || compFills.length === 0) && layerCount > 0 && layerData.layers[0].fill) {
+            compFills = layerData.layers[0].fill;
+        }
+        if ((!compStrokes || compStrokes.length === 0) && layerCount > 0 && layerData.layers[0].stroke) {
+            compStrokes = layerData.layers[0].stroke;
+        }
+
+        // 4. Добавляем ОДНУ общую заливку/обводку в самый низ (чтобы она окрасила результат слияния)
+        if (compFills && compFills.length > 0) addFillToGroup(targetGroup, compFills);
+        if (compStrokes && compStrokes.length > 0) addStrokeToGroup(targetGroup, compStrokes);
     }
     function addMerge(targetGroup, bool) {
         if (bool < 0) return;
@@ -1038,13 +1061,21 @@ function aeCompound(layer, opt_parent) {
                 fill.enabled = fillData.enabled;
                 fill.property("ADBE Vector Fill Color").setValue(fillData.color);
                 fill.property("ADBE Vector Fill Opacity").setValue(fillData.opacity);
+                
+                // --- ИСПРАВЛЕНИЕ: EVEN-ODD ---
+                try { fill.property("ADBE Vector Fill Rule").setValue(2); } catch(e){} 
                 try { fill.property("ADBE Vector Blend Mode").setValue(fillData.blendMode); } catch(e){}
+                
             } else if (fillData.type == 'gradient') {
                 fill = cont.addProperty('ADBE Vector Graphic - G-Fill');
                 fill.property("ADBE Vector Fill Opacity").setValue(fillData.opacity);
                 fill.property('ADBE Vector Grad Type').setValue(fillData.gradType || 1);
                 fill.property('ADBE Vector Grad Start Pt').setValue(fillData.startPoint);
                 fill.property('ADBE Vector Grad End Pt').setValue(fillData.endPoint);
+                
+                // --- ИСПРАВЛЕНИЕ: EVEN-ODD ---
+                try { fill.property("ADBE Vector Fill Rule").setValue(2); } catch(e){} 
+                
                 ae_deselectProps();
                 fill.selected = true;
                 applyGradientFfx('fill', false, fillData);
@@ -1521,20 +1552,11 @@ function addFill(r, layer) {
                 fill.enabled = layer.fill[i].enabled;
                 fill("ADBE Vector Fill Color").setValue(layer.fill[i].color);
                 fill("ADBE Vector Fill Opacity").setValue(layer.fill[i].opacity);
+                
+                // --- ИСПРАВЛЕНИЕ: ПРИНУДИТЕЛЬНОЕ ПРАВИЛО EVEN-ODD ДЛЯ ДЫРОК ---
+                try { fill("ADBE Vector Fill Rule").setValue(2); } catch(e){} 
             }
             if (layer.fill[i].type == 'gradient') {
-                // var gradType;
-                // // linear
-                // if (layer.fill[i].gradType == 0) {
-                //     gradType = 1;
-                // // radial
-                // } else if (layer.fill[i].gradType == 1) {
-                //     gradType = 2;
-                // // linear as default
-                // } else {
-                //     gradType = 1;
-                //     returnMessage.push(2);		// 'Angular gradients'
-                // }
                 // add a gradient element
                 fill = r(2)(1)(2).addProperty('ADBE Vector Graphic - G-Fill');
                 // set color and visibility
@@ -1542,6 +1564,9 @@ function addFill(r, layer) {
                 fill('ADBE Vector Grad Type').setValue(layer.fill[i].gradType);
                 fill('ADBE Vector Grad Start Pt').setValue(layer.fill[i].startPoint);
                 fill('ADBE Vector Grad End Pt').setValue(layer.fill[i].endPoint);
+                
+                // --- ИСПРАВЛЕНИЕ ДЛЯ ГРАДИЕНТА: ПРИНУДИТЕЛЬНОЕ ПРАВИЛО EVEN-ODD ---
+                try { fill("ADBE Vector Fill Rule").setValue(2); } catch(e){}
 
                 /// deselect layers before applying gradient preset
                 ae_deselectProps();
@@ -1550,7 +1575,6 @@ function addFill(r, layer) {
             }
             // set blend mode
             fill("ADBE Vector Blend Mode").setValue(layer.fill[i].blendMode);
-
         }
     }
 }

@@ -677,14 +677,26 @@ var AEUX = (function () {
                         if (round)
                             round.property('ADBE Vector RoundCorner Radius').setValue(shape.roundness);
                     }
-                    if (shape.fill && shape.fill.length > 0)
-                        addFillToGroup(workGroup, shape.fill);
-                    if (shape.stroke && shape.stroke.length > 0)
-                        addStrokeToGroup(workGroup, shape.stroke);
                 }
-                if (i == layerCount - 1 && layerData.booleanOperation > -1)
-                    addMerge(targetGroup, layerData.booleanOperation);
             }
+            if (layerData.booleanOperation > -1) {
+                addMerge(targetGroup, layerData.booleanOperation);
+            }
+            else {
+                addMerge(targetGroup, 3);
+            }
+            var compFills = layerData.fill;
+            var compStrokes = layerData.stroke;
+            if ((!compFills || compFills.length === 0) && layerCount > 0 && layerData.layers[0].fill) {
+                compFills = layerData.layers[0].fill;
+            }
+            if ((!compStrokes || compStrokes.length === 0) && layerCount > 0 && layerData.layers[0].stroke) {
+                compStrokes = layerData.layers[0].stroke;
+            }
+            if (compFills && compFills.length > 0)
+                addFillToGroup(targetGroup, compFills);
+            if (compStrokes && compStrokes.length > 0)
+                addStrokeToGroup(targetGroup, compStrokes);
         }
         function addMerge(targetGroup, bool) {
             if (bool < 0)
@@ -722,6 +734,10 @@ var AEUX = (function () {
                     fill.property("ADBE Vector Fill Color").setValue(fillData.color);
                     fill.property("ADBE Vector Fill Opacity").setValue(fillData.opacity);
                     try {
+                        fill.property("ADBE Vector Fill Rule").setValue(2);
+                    }
+                    catch (e) { }
+                    try {
                         fill.property("ADBE Vector Blend Mode").setValue(fillData.blendMode);
                     }
                     catch (e) { }
@@ -732,6 +748,10 @@ var AEUX = (function () {
                     fill.property('ADBE Vector Grad Type').setValue(fillData.gradType || 1);
                     fill.property('ADBE Vector Grad Start Pt').setValue(fillData.startPoint);
                     fill.property('ADBE Vector Grad End Pt').setValue(fillData.endPoint);
+                    try {
+                        fill.property("ADBE Vector Fill Rule").setValue(2);
+                    }
+                    catch (e) { }
                     ae_deselectProps();
                     fill.selected = true;
                     applyGradientFfx('fill', false, fillData);
@@ -1051,6 +1071,10 @@ var AEUX = (function () {
                     fill.enabled = layer.fill[i].enabled;
                     fill("ADBE Vector Fill Color").setValue(layer.fill[i].color);
                     fill("ADBE Vector Fill Opacity").setValue(layer.fill[i].opacity);
+                    try {
+                        fill("ADBE Vector Fill Rule").setValue(2);
+                    }
+                    catch (e) { }
                 }
                 if (layer.fill[i].type == 'gradient') {
                     fill = r(2)(1)(2).addProperty('ADBE Vector Graphic - G-Fill');
@@ -1058,6 +1082,10 @@ var AEUX = (function () {
                     fill('ADBE Vector Grad Type').setValue(layer.fill[i].gradType);
                     fill('ADBE Vector Grad Start Pt').setValue(layer.fill[i].startPoint);
                     fill('ADBE Vector Grad End Pt').setValue(layer.fill[i].endPoint);
+                    try {
+                        fill("ADBE Vector Fill Rule").setValue(2);
+                    }
+                    catch (e) { }
                     ae_deselectProps();
                     fill.selected = true;
                     applyGradientFfx('fill', false, layer.fill[i]);
