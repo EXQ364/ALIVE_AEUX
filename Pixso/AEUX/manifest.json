@@ -1,0 +1,7 @@
+{
+  "name": "AEUX (Pixso)",
+  "id": "864522107465619637",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "dist/ui.html"
+}
